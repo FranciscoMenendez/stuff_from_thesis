@@ -1,0 +1,1012 @@
+---
+title: "GSEA analysis"
+author: "francisco.menendez.burns"
+date: "2023-01-04"
+output: html_document
+---
+
+
+```{r}
+
+library(data.table)
+obo <- readLines('GO_OBO_CORE.obo.txt')
+
+namespace <- obo[grep('^namespace:', obo)]
+ids <- obo[grep('^id:', obo)]
+go_names <- obo[c(grep('^id:', obo)+1)]
+
+go_terms <- data.frame(ids=ids, go_names=go_names, category = namespace)
+go_terms$ids <- unlist(lapply(go_terms$ids, function(x) strsplit(x, split = ' ')[[1]][2]))
+go_terms$go_names <- unlist(lapply(go_terms$go_names, function(x) strsplit(x, split = ': ')[[1]][2]))
+go_terms$category <- unlist(lapply(go_terms$category, function(x)  strsplit(x, split = ':')[[1]][2]))
+go_terms$category <- unlist(lapply(go_terms$category, function(x)  sub(pattern = '_', replacement = ' ', x = x)))
+go_terms$category <- unlist(lapply(go_terms$category, function(x)  sub(pattern = '^ ', replacement = '', x = x)))
+
+go_terms[grep('GO:0009505',go_terms$ids),]
+go_terms[grep('GO:0048046', go_terms$ids),]
+go_terms[grep('GO:0005507', go_terms$ids),] #get any of the go term names 
+go_terms[grep('GO:0080022', go_terms$ids),]
+
+go_terms <- as.data.table(go_terms)
+
+load('go_terms_cacao.rda')
+
+```
+
+
+
+```{r}
+#install.packages('devtools')
+#devtools::install_github("nicolash2/gggsea")
+library(gggsea)
+library(stringi)
+library(plyr)
+library(dplyr)
+library(data.table)
+
+library(ComplexHeatmap)
+library(circlize)
+library(stringr)
+library(ggplot2)
+library(Cairo)
+library(magick)
+
+
+
+tcgo <- read.table('GO_terms/B97_goterms_tables2.txt', fill=T, sep='\t') #gene id rownames and GO terms on each gene FROM OMICSBOX
+tcgo <- tcgo[2:nrow(tcgo), ]
+tcgo <- tcgo[!tcgo$V2=="", ]
+names(tcgo) <- c('GID', 'GO', 'GO_cat')
+allgo <- paste(tcgo$GO, collapse = ';')
+allgo <- strsplit(allgo, ';')
+allgo <- unlist(allgo)
+allgo <- unique(allgo)
+
+sl <- lapply(allgo, function(x) { #PAYS TO MAKE THIS FASTER (parallel::mc.cores)
+  y <- tcgo[grep(pattern = x, tcgo$GO), 'GID']
+  return(y)
+})
+
+names(sl) <- allgo #the GMT from OmicsBox
+
+library(parallel)
+
+sl <- mclapply(allgo, function(x) {
+  y <- tcgo[grep(pattern = x, tcgo$GO), 'GID']
+  return(y)
+}, mc.cores = 8)
+
+names(sl) <- allgo #the GMT from OmicsBox
+
+
+```
+
+
+```{r}
+
+source('make_gsea.r')
+
+setwd('res_root/GSEA_lists/')
+
+gsea_root <- lapply(dir(), gsea_enrich)
+gsea_root <- lapply(grep('.txt', dir()[-grep('.txt ', dir(), value = F)], value = T), gsea_enrich)
+
+setwd('../../res_leaf/GSEA_lists/')
+
+gsea_leaf <- lapply(dir(), gsea_enrich)
+gsea_leaf <- lapply(grep('.txt', dir()[-grep('.txt ', dir(), value = F)], value = T), gsea_enrich)
+
+```
+
+```{r}
+setwd('../../res_root/GSEA_list/')
+
+gsea_root <- lapply(grep( '\\.txt$', dir(), value = T), gsea_enrich) 
+names(gsea_root) <- strsplit(grep( '\\.txt$', dir(), value = T), split = '.txt')
+gsea_root <- lapply(gsea_root, function(x) return(cbind(x, go_terms[match(x$pathway, go_terms$ids) , c( 'category', 'go_names')])))
+grdf <- do.call(rbind, gsea_root)
+grdf$comparison <- unlist(lapply(grdf$comparison, function(x) strsplit(x, '_gsea')[[1]][1]))
+write.table(table(grdf$go_names, grdf$comparison), file = 'gsea_root_comparisons.txt', quote = F, sep = '\t')
+gb <- grdf[comparison %in% c('root_pa121_tsh660_0h_0h', 'root_pa121_tsh660_48h_48h')] #gsea between
+
+table2 <- grdf[, NES, .(comparison, go_names, category)]
+rootnes <- data.table(dcast(data = table2, formula = go_names~comparison, fill = 0, value.var = 'NES'))
+rootGO <- data.table(dcast(data = table2, formula = go_names~comparison,fill=0, fun.aggregate = length))
+rootGO$rowsum <- colSums(t(rootGO[, -'go_names'])) #should this be a function?
+rootGO$category <- table2[match(rootGO$go_names, table2$go_names), 'category']
+rootGO <- rootGO[order(rootGO$category, rootGO$rowsum, decreasing = T), ]
+rootnes <- rootnes[as.numeric(match(rootGO$go_names, rootnes$go_names)), ]
+rootmat <- as.matrix(rootnes[, -c('go_names')])
+
+
+r_g_hm <- Heatmap(matrix = rootmat, col = c("green", "white", "blue"), cluster_rows = F,
+        row_names_side = 'left',
+        cluster_columns = F,
+        row_labels = str_wrap(rootnes[, go_names], width = 20),
+        row_names_gp = gpar(cex=.6),
+        column_labels = c('Root\n48h/0h',
+                          'Root\nPA121 48h/0h',
+                          'Root\nPA121 0h/Tsh660 0h',
+                          'Root\nPA121 48h/Tsh660 48h',
+                          'Root\nTSH660 48h/0h'),
+        column_names_side = 'top',
+        column_names_rot = 0,
+        column_names_gp = gpar(cex=.6, adj=c(1,1)),
+        column_names_centered = F,
+        column_names_max_height = unit(10, 'cm'),
+        heatmap_legend_param = list(title='NES'),
+        cell_fun = function(j, i, x, y, width, height, fill) {
+          if(abs(rootmat[i, j]) > 0)
+            grid.text(sprintf("%.1f", rootmat[i, j]), x, y, gp = gpar(fontsize = 10))}, 
+        use_raster = T,
+        raster_device = 'tiff',
+        raster_quality = 300,
+        )
+
+tiff(file = 'root_gsea_heatmap_nes.tiff',width = 18, height = 18, units = 'cm', res = 300)
+r_g_hm
+dev.off()
+
+
+
+```
+
+
+```{r}
+setwd('../../res_leaf/GSEA_lists/')
+
+gsea_leaf <- lapply(grep( '\\.txt$', dir(), value = T), gsea_enrich)
+names(gsea_leaf) <- strsplit(grep( '\\.txt$', dir(), value = T), split = '.txt')
+gsea_leaf <- lapply(gsea_leaf, function(x) return(cbind(x, go_terms[match(x$pathway, go_terms$ids), c('category', 'go_names')])))
+#gsea_leaf <- lapply(gsea_leaf, function(x) cbind(x, go_terms[match(x[, pathway], go_terms$ids), 'go_names' ]))
+gldf <- do.call(rbind, gsea_leaf)
+gldf$comparison <- unlist(lapply(gldf$comparison, function(x) strsplit(x, '_gsea')[[1]][1]))
+#gldf$go2 <- go_terms[match(ids, gldf$pathway), go_names]
+write.table(table(gldf$go_names, gldf$comparison), file = 'gsea_leaf_comparisons.txt', quote = F, sep = '\t')
+
+gb <- rbind(gb, gldf[comparison %in% c('leaf_pa121_tsh660_0h_0h', 'leaf_pa121_tsh660_24h_24h', 'leaf_pa121_tsh660_48h_48h')])
+
+save(gb, file = 'gsea_between.rda')
+   
+
+table3 <- gldf[, .(comparison,category,  go_names, NES)]
+table(table3[,comparison], table3[, go_names])
+leafnes <- data.table(dcast(data = table3, formula = go_names ~ comparison, fill = 0, value.var = 'NES'))
+leafGO <- data.table(dcast(data = table3, formula = go_names ~ comparison, fill = 0, fun.aggregate = length))
+leafGO$rowsum <- colSums(t(leafGO[, -'go_names']))
+leafGO$category <- table3[match(leafGO$go_names, table3$go_names), 'category']
+leafGO <- leafGO[order(category, rowsum, decreasing = T)]
+leafnes <- leafnes[as.numeric(match(leafGO$go_names, leafnes$go_names)),]
+leafmat <- as.matrix(leafnes[, -'go_names'])
+
+
+```
+
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+library(stringr)
+library(ggplot2)
+library(Cairo)
+library(magick)
+
+
+l_g_hm <- Heatmap(matrix = leafmat, col = c("green", "white", "blue"), cluster_rows = F,
+        row_names_side = 'left',
+        cluster_columns = F,
+        row_labels = str_wrap(leafnes[, go_names], width = 20),
+        row_names_gp = gpar(cex=.6),
+        column_labels = c('Leaf\n24h/0h',
+                          'Leaf\n48h/0h',
+                          'Leaf\nCd/NoCd',
+                          'Leaf\nPA121 24h/0h',
+                          'Leaf\nPA121 48h/0h',
+                          'Leaf\nPA121 Cd/NoCd',
+
+                          'Leaf\nPA121 0h/Tsh660 0h',
+                          'Leaf\nPA121 24h/Tsh660 24h',
+                          'Leaf\nPA121 48h/Tsh660 48h',
+                          'Leaf\nTsh660.24h',
+                          'Leaf\nTsh660.48h',
+                          
+                          'Leaf\nTSH660 24h/0h',
+                          'Leaf\nTSH660 48h/0h',
+                          'Leaf\nTSH660 Cd/NoCd'),
+        column_names_side = 'top',
+        column_names_rot = 0,
+        column_names_gp = gpar(cex=.6, adj=c(1,1)),
+        column_names_centered = F,
+        column_names_max_height = unit(10, 'cm'),
+        heatmap_legend_param = list(title='NES'),
+        cell_fun = function(j, i, x, y, width, height, fill) {
+          if(abs(leafmat[i, j]) > 0)
+            grid.text(sprintf("%.1f", leafmat[i, j]), x, y, gp = gpar(fontsize = 10))}, 
+        use_raster = T,
+        raster_device = 'tiff',
+        raster_quality = 300,
+        )
+
+tiff(file = 'leaf_gsea_heatmap_nes.tiff',width = 18, height = 36, units = 'cm', res = 300)
+l_g_hm
+dev.off()
+
+
+                          
+```
+
+GSEA both (common response)
+
+```{r}
+bothnes <- leafnes[, .(go_names, leaf_48h_0h, leaf_24h_0h), ]
+bothnes <- cbind(bothnes, rootnes[match(leafnes$go_names, rootnes$go_names), .(root_48h_0h_gsea_list.txt)])
+bothnes[is.na(bothnes$root_48h_0h_gsea_list.txt), 'root_48h_0h_gsea_list.txt'] <- 0
+bothnes <- bothnes[rowSums(bothnes[, -'go_names'])!=0]
+#bothnes <- bothnes[apply(X = bothnes[, -'go_names'], 1, function(x) sum(x!=0)==3), ]
+both_mat <- as.matrix(bothnes[, -'go_names'])
+
+col_fun = colorRamp2(c(-2.5, 0, 2.5), c("green", "white", "blue"))
+col_fun2 = colorRamp2(c(-2.5, 0, 2.5), c('#8EA350', 'white', '#A98AB0'))
+col_fun3 = colorRamp2(c(-2.5, 0, 2.5), c('#FED43F', 'white', '#E151AF'))
+col_fun4 = colorRamp2(c(-2.5, 0, 2.5), c('#D37506', 'white', '#7EC8E3'))
+
+
+both_g_hm <- Heatmap(matrix = both_mat, col = col_fun, cluster_rows = F,
+                     row_names_side = 'left',
+                     cluster_columns = F,
+                     row_labels = str_wrap(bothnes[, go_names], width = 20),
+                     row_names_gp = gpar(cex=.6),
+                     column_labels = c('Leaf\n48h/0h',
+                                       'Leaf\n24h/0h',
+                                       #'Leaf\nCd/NoCd',
+                                       #'Leaf\nPA121 24h/0h',
+                                       #'Leaf\nPA121 48h/0h',
+                                       #'Leaf\nPA121 Cd/NoCd',
+                                       
+                                       #'Leaf\nPA121 0h/Tsh660 0h',
+                                       #'Leaf\nPA121 24h/Tsh660 24h',
+                                       #'Leaf\nPA121 48h/Tsh660 48h',
+                                       #'Leaf\nTsh660.24h',
+                                       #'Leaf\nTsh660.48h',
+                                       
+                                       #'Leaf\nTSH660 24h/0h',
+                                       #'Leaf\nTSH660 48h/0h',
+                                       #'Leaf\nTSH660 Cd/NoCd', 
+                                       'Root\n48h/0h'),
+                     column_names_side = 'top',
+                     column_names_rot = 0,
+                     column_names_gp = gpar(cex=.6, adj=c(1,1)),
+                     column_names_centered = F,
+                     column_names_max_height = unit(10, 'cm'),
+                     heatmap_legend_param = list(title='NES', legend_direction='horizontal'),
+                     cell_fun = function(j, i, x, y, width, height, fill) {
+                       if(abs(both_mat[i, j]) > 0)
+                         grid.text(sprintf("%.1f", both_mat[i, j]), x, y, gp = gpar(fontsize = 6.5))}, 
+                     use_raster = F,
+                     #raster_device = 'tiff',
+                     #raster_quality = 5
+)
+
+
+tiff(file = 'both_gsea_heatmap_nes.tiff',width = 7, height = 12, units = 'cm', res = 300)
+both_g_hm
+dev.off()
+
+pdf(file = 'both_gsea_heatmap_nes.pdf',width = 3.2, height = 4.72 )
+both_g_hm
+dev.off()
+
+grdf[bothnes$go_names, leadingEdge]
+
+
+```
+
+Separate response
+
+```{r}
+
+singlenes <- leafnes[, .(go_names, leaf_pa121_48h_0h, leaf_pa121_24h_0h, leaf_tsh660_48h_0h, leaf_tsh660_24h_0h), ]
+singlenes <- cbind(singlenes, rootnes[match(leafnes$go_names, rootnes$go_names), .(root_pa121_48h_0h_gsea_list.txt, root_tsh660_48h_0h_gsea_list.txt)])
+singlenes[is.na(singlenes$root_pa121_48h_0h_gsea_list.txt), 'root_pa121_48h_0h_gsea_list.txt'] <- 0
+singlenes[is.na(singlenes$root_tsh660_48h_0h_gsea_list.txt), 'root_tsh660_48h_0h_gsea_list.txt'] <- 0
+singlenes <- singlenes[rowSums(singlenes[, -'go_names'])!=0]
+single_mat <- as.matrix(singlenes[, -'go_names'])
+
+singlenes <- singlenes[apply(X = singlenes[, -'go_names'], 1, function(x) sum(x!=0)==2), ]
+
+single_g_hm <- Heatmap(matrix = single_mat, col = col_fun, cluster_rows = F,
+                     row_names_side = 'left',
+                     cluster_columns = F,
+                     row_labels = str_wrap(singlenes[, go_names], width = 20),
+                     row_names_gp = gpar(cex=.6),
+                     column_labels = c(#'Leaf\n48h/0h',
+                                       #'Leaf\n24h/0h',
+                                       'Leaf\nPA121 48h/0h',
+                                       'Leaf\nPA121 24h/0h',
+                                       'Leaf\nTSH660 48h/0h',
+                                       'Leaf\nTSH660 24h/0h',
+                                       'Root\nPA121 48h/0h',
+                                       'Root\nTSH660 48h/0h'
+                                       
+                                       #'Leaf\nCd/NoCd',
+                                       #'Leaf\nPA121 Cd/NoCd',
+                                       #'Leaf\nPA121 0h/Tsh660 0h',
+                                       #'Leaf\nPA121 24h/Tsh660 24h',
+                                       #'Leaf\nPA121 48h/Tsh660 48h',
+                                       #'Leaf\nTsh660.24h',
+                                       #'Leaf\nTsh660.48h',
+                                       #'Leaf\nTSH660 24h/0h',
+                                       #'Leaf\nTSH660 48h/0h',
+                                       #'Leaf\nTSH660 Cd/NoCd', 
+                                       #'Root\n48h/0h'
+                                       ),
+                     column_names_side = 'top',
+                     column_names_rot = 0,
+                     column_names_gp = gpar(cex=.35, adj=c(1,1)),
+                     column_names_centered = F,
+                     column_names_max_height = unit(10, 'cm'),
+                     heatmap_legend_param = list(title='NES', legend_direction='horizontal'),
+                     cell_fun = function(j, i, x, y, width, height, fill) {
+                       if(abs(single_mat[i, j]) > 0)
+                         grid.text(sprintf("%.1f", single_mat[i, j]), x, y, gp = gpar(fontsize = 6.5))}, 
+                     use_raster = F
+                     #raster_device = 'tiff',
+                     #raster_quality = 300,
+)
+
+tiff(file = 'single_gsea_heatmap_nes.tiff',width = 12, height = 24, units = 'cm', res = 300)
+single_g_hm
+dev.off()
+
+pdf(file = 'single_gsea_heatmap_nes.pdf',width = 4.5, height = 9.44 )
+single_g_hm
+dev.off()
+
+```
+
+#single and both
+```{r}
+
+
+a <- leafnes[,.(go_names, leaf_24h_0h, leaf_48h_0h, leaf_pa121_24h_0h, leaf_pa121_48h_0h, leaf_tsh660_24h_0h, leaf_tsh660_48h_0h, leaf_pa121_tsh660_0h_0h, leaf_pa121_tsh660_24h_24h, leaf_pa121_tsh660_48h_48h)]
+b <- rootnes
+
+bsnes <- merge(a, b, by='go_names', all.x=T, all.y=T)
+setkey(bsnes, 'go_names')
+
+bsnes <- setDT(bsnes)[, lapply(.SD, function(x) replace(x, is.na(x), 0))]
+
+dim(bsnes)
+
+
+bsGO <- as.matrix(bsnes[, -'go_names'])
+rownames(bsGO) <- bsnes[, go_names]
+bsGO[abs(bsGO)>0] <- 1
+bsGO <- cbind(bsGO,rowsum=rowSums(bsGO))
+bsGO <- cbind(bsGO, category=go_terms[go_terms$go_names %in% rownames(bsGO), 'category'])
+bsGO <- data.table(go_names=rownames(bsGO), bsGO)
+bsGO$rowsum <- as.numeric(bsGO$rowsum)
+
+bsGO $category <- go_terms[match( bsGO[, .(go_names, category)][, go_names], go_terms$go_names),"category"]
+
+
+bsGO <- bsGO[order(category, rowsum, decreasing = T),]
+
+bsnes <- bsnes[match(bsGO$go_names, bsnes$go_names), ]
+bsnes <- bsnes[,c(1, 2, 3, 11, 4:7, 12, 15, 8:10, 13, 14)]
+
+bs_mat <- as.matrix(bsnes[, -'go_names'])
+
+row_ha <- rowAnnotation(category=bsGO[, category], show_annotation_name=F, col=list(category=c('molecular function'='#D8A7B1', 'cellular component'='#B6E2D3', 'biological process'='#FAE8E0')))
+
+row_ha2 <- rowAnnotation(category=bsGO[, category], show_annotation_name=F, col=list(category=c('molecular function'='#D8A7B1', 'cellular component'='#B6E2D3', 'biological process'='#B1D8B7')))
+
+row_ha3 <- rowAnnotation(category=bsGO[, category], show_annotation_name=F, col=list(category=c('molecular function'='firebrick', 'cellular component'='#7EC8E3', 'biological process'='#638C80')))
+
+row_ha4 <- rowAnnotation(category=bsGO[ ,category], show_annotation_name=F, col=list(category=c('molecular function'='red', 'cellular component'='grey', 'biological process'='blue')))
+
+"#875E4C","#BF5256","#787878",
+
+vip_colors = c("#875E4C","#BF5256","#787878","#F3B6C4","#BB9687","#F9CB4C","#5C78A7","#9FADCE","#755142")
+nr_phylum=sort(unique(ann$Phylum))
+names(vip_colors) = nr_phylum
+
+'#D37506', 'white', '#7EC8E3')
+
+bs_g_hm <- Heatmap(matrix = bs_mat, col = col_fun4, cluster_rows = F,
+                   row_names_side = 'left',
+                   cluster_columns = F,
+                   row_labels = str_wrap(bsnes[, go_names], width = 20),
+                   row_names_gp = gpar(cex=.5),
+                   column_labels = c('Leaf\n24h/0h',
+                                     'Leaf\n48h/0h',
+                                     'Root\n48h/0h',
+                                     'Leaf\nPA121\n24h/0h',
+                                     'Leaf\nPA121\n48h/0h',
+                                     'Leaf\nTSH660\n24h/0h',
+                                     'Leaf\nTSH660\n48h/0h',
+                                     'Root\nPA121\n48h/0h',
+                                     'Root\nTSH660\n48h/0h',
+                                     'Leaf\nPA121 0h\n/Tsh660 0h',
+                                     'Leaf\nPA121 24h\n/Tsh660 24h',
+                                     'Leaf\nPA121 48h\n/Tsh660 48h',
+                                     'Root\nPA121 0h\n/Tsh660 0h',
+                                     'Root\nPA121 48h\n/Tsh660 48h'
+                   ),
+                   column_names_side = 'top',
+                   column_names_rot = 0,
+                   column_names_gp = gpar(cex=.35, adj=c(1,1)),
+                   column_names_centered = F,
+                   column_names_max_height = unit(10, 'cm'),
+                   heatmap_legend_param = list(title='NES', legend_direction='horizontal'),
+                   cell_fun = function(j, i, x, y, width, height, fill) {
+                     if(abs(bs_mat[i, j]) > 0)
+                       grid.text(sprintf("%.1f", bs_mat[i, j]), x, y, gp = gpar(fontsize = 6.5))}, 
+                   use_raster = F,
+                   column_split = factor(c(rep("Both genotypes", times=3), rep('Single genotypes', times=6), rep('Between genotypes', times=5)), levels = c("Both genotypes", 'Single genotypes', 'Between genotypes')),
+                   column_gap = unit(3, "mm"),
+                   column_title_gp = gpar(cex=.65),
+                   left_annotation = row_ha
+                   #border=T,
+                   #column_title_gp = gpar(cex=0.5, fill=c('#2BB8B3', '#BED7D8'), lty='blank')
+                   #column_title_gp = gpar(cex=0.5, fill=c('#9DCED0', '#F0F1CF'), lty='blank')
+                   #raster_device = 'tiff',
+                   #raster_quality = 300,
+)
+
+#Updated names
+
+bs_g_hm2 <- Heatmap(matrix = bs_mat, col = col_fun4, cluster_rows = F,
+                   row_names_side = 'left',
+                   cluster_columns = F,
+                   row_labels = str_wrap(bsnes[, go_names], width = 20),
+                   row_names_gp = gpar(cex=.5),
+                   column_labels = c('Lf\n24h/0h',
+                                     'Lf\n48h/0h',
+                                     'Rt\n48h/0h',
+                                     'Lf\nHA\n24h/0h',
+                                     'Lf\nHA\n48h/0h',
+                                     'Lf\nLA\n24h/0h',
+                                     'Lf\nLA\n48h/0h',
+                                     'Rt\nHA\n48h/0h',
+                                     'Rt\nLA\n48h/0h',
+                                     'Lf\nHA 0h\n/LA 0h',
+                                     'Lf\nHA 24h\n/LA 24h',
+                                     'Lf\nHA 48h\n/LA 48h',
+                                     'Rt\nHA 0h\n/LA 0h',
+                                     'Rt\nHA 48h\n/LA 48h'
+                   ),
+                   column_names_side = 'top',
+                   column_names_rot = 0,
+                   column_names_gp = gpar(cex=.50, adj=c(1,1)),
+                   column_names_centered = F,
+                   column_names_max_height = unit(10, 'cm'),
+                   heatmap_legend_param = list(title='NES', legend_direction='horizontal'),
+                   cell_fun = function(j, i, x, y, width, height, fill) {
+                     if(abs(bs_mat[i, j]) > 0)
+                       grid.text(sprintf("%.1f", bs_mat[i, j]), x, y, gp = gpar(fontsize = 6.5))}, 
+                   use_raster = F,
+                   column_split = factor(c(rep("Both genotypes", times=3), rep('Single genotypes', times=6), rep('Between genotypes', times=5)), levels = c("Both genotypes", 'Single genotypes', 'Between genotypes')),
+                   column_gap = unit(3, "mm"),
+                   column_title_gp = gpar(cex=.65),
+                   left_annotation = row_ha
+                   #border=T,
+                   #column_title_gp = gpar(cex=0.5, fill=c('#2BB8B3', '#BED7D8'), lty='blank')
+                   #column_title_gp = gpar(cex=0.5, fill=c('#9DCED0', '#F0F1CF'), lty='blank')
+                   #raster_device = 'tiff',
+                   #raster_quality = 300,
+)
+
+
+
+pdf(file = 'bs_gsea_heatmap_nes.pdf',width = 7.5, height = 9.44 )
+bs_g_hm
+dev.off()
+
+pdf(file = 'bs_gsea_heatmap_nes_newnames.pdf',width = 7.5, height = 9.44 )
+bs_g_hm2
+dev.off()
+
+# Enriched GO term clustering 
+
+gsea_simBP <- GO_similarity(go_terms[match(bsGO[category=='biological process', go_names], go_terms$go_names),"ids"], ont = 'BP')
+gsea_clustBP <- simplifyEnrichment(gsea_sim, plot = F)
+gsea_rnkBP <- data.table(gsea_clust)
+gsea_rnkBP <- gsea_rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+gsea_simCC <- GO_similarity(go_terms[match(bsGO[category=='cellular component', go_names], go_terms$go_names),"ids"], ont = 'CC')
+gsea_clustCC <- simplifyEnrichment(gsea_simCC, plot = F)
+gsea_rnkCC <- data.table(gsea_clustCC)
+gsea_rnkCC <- gsea_rnkCC[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+gsea_simMF <- GO_similarity(go_terms[match(bsGO[category=='molecular function', go_names], go_terms$go_names),"ids"], ont = 'MF')
+gsea_clustMF <- simplifyEnrichment(gsea_simMF, plot = F)
+gsea_rnkMF <- data.table(gsea_clustMF)
+gsea_rnkMF <- gsea_rnkMF[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+```
+
+#between genotypes
+
+```{r}
+
+benes <- merge(leafnes[, .(go_names, leaf_pa121_tsh660_0h_0h, leaf_pa121_tsh660_24h_24h, leaf_pa121_tsh660_48h_48h)], rootnes[, .(go_names, root_pa121_tsh660_0h_0h, root_pa121_tsh660_48h_48h)], by='go_names', all.y=T, all.x=T)
+benes <- merge(bsnes, benes, by='go_names', all.y=T, all.x=T)
+
+beGO <- as.matrix(benes[, -'go_names'])
+beGO[is.na(beGO)] <- 0
+benes <- cbind(benes[, .(go_names)], beGO)
+beGO[abs(beGO)>0] <- 1
+beGO <- cbind(benes[, .(go_names)], beGO)
+beGO$rowsum <- rowSums(beGO[, -'go_names'])
+beGO$category <- go_terms[go_terms$go_names %in% beGO$go_names, category]
+beGO <- beGO[order(category, rowsum, decreasing = T), ]
+benes <- benes[match(beGO$go_names, benes$go_names), ]
+benes <- benes[rowSums(benes[, -'go_names'])!=0]
+benes <- benes[go_names==beGO[rowsum==1 & category=='molecular function', go_names], ]
+be_mat <- as.matrix(benes[, -'go_names'])
+be_mat <- be_mat[,colnames(be_mat)[c(2, 1, 3, 5, 4, 7, 6, 8, 9, 10, 11, 13, 12, 14)]]
+
+be_g_hm <- Heatmap(matrix = be_mat, col = col_fun3, cluster_rows = F,
+                   row_names_side = 'left',
+                   cluster_columns = F,
+                   row_labels = str_wrap(benes[, go_names], width = 20),
+                   row_names_gp = gpar(cex=.5),
+                   column_labels = c('Leaf\n24h/0h',
+                                     'Leaf\n48h/0h',
+                                     'Root\n48h/0h',
+                                     'Leaf\nPA121\n24h/0h',
+                                     'Leaf\nPA121\n48h/0h',
+                                     'Leaf\nTSH660\n24h/0h',
+                                     'Leaf\nTSH660\n48h/0h',
+                                     'Root\nPA121\n48h/0h',
+                                     'Root\nTSH660\n48h/0h',
+                                     'Leaf\nPA121 0h\n/Tsh660 0h',
+                                     'Leaf\nPA121 24h\n/Tsh660 24h',
+                                     'Leaf\nPA121 48h\n/Tsh660 48h',
+                                     'Root\nPA121 0h\n/Tsh660 0h',
+                                     'Root\nPA121 48h\n/Tsh660 48h'
+                   ),
+                   column_names_side = 'top',
+                   column_names_rot = 0,
+                   column_names_gp = gpar(cex=.35, adj=c(1,1)),
+                   column_names_centered = F,
+                   column_names_max_height = unit(10, 'cm'),
+                   heatmap_legend_param = list(title='NES', legend_direction='horizontal'),
+                   cell_fun = function(j, i, x, y, width, height, fill) {
+                     if(abs(be_mat[i, j]) > 0)
+                       grid.text(sprintf("%.1f", be_mat[i, j]), x, y, gp = gpar(fontsize = 6.5))}, 
+                   use_raster = F,
+                   column_split = factor(c(rep("Both genotypes", times=3), rep('Single genotypes', times=6), rep('Between genotypes', times=5)), levels = c("Both genotypes", 'Single genotypes', 'Between genotypes')),
+                   column_gap = unit(1.5, "mm"),
+                   #border=T,
+                   #column_title_gp = gpar(cex=0.5, fill=c('#2BB8B3', '#BED7D8'), lty='blank')
+                   #column_title_gp = gpar(cex=0.5, fill=c('#9DCED0', '#F0F1CF'), lty='blank')
+                   column_title_gp = gpar(cex=0.65),
+                   left_annotation = beGO$category
+                   #raster_device = 'tiff',
+                   #raster_quality = 300,
+)
+
+pdf(file = 'bsbe_gsea_heatmap_nes.pdf',width = 7.5, height = 9.44 ) #b oth si ngle be tween
+be_g_hm
+dev.off()
+
+
+```
+
+
+Wordcloud
+
+```{r}
+#load('dd_objects.rmd') 
+#library(DESeq2)
+#load fasta files to
+cds <- ape::read.FASTA(file = '../TC_B97_consensusV2_rev2021.cds.fna')
+
+setwd("~/Documents/PSU/Lab/Cd/1project/Cd Transcriptome")
+
+load('cr.rda')
+cr <- data.table(cr)
+
+unique(gldf$comparison)
+
+both48_0genes <- gsea_leaf$leaf_48h_0h_gsea_list[go_names=='apoplast', leadingEdge]
+
+both24_0apoplast <- gsea_leaf$leaf_24h_0h_gsea_list[go_names=='apoplast', leadingEdge]
+
+root_both_48_0_apoplast <- gsea_root$root_48h_0h_gsea_list[go_names=='apoplast', leadingEdge]
+
+
+both_apo <- list(both48_0genes[[1]],
+both24_0apoplast[[1]],
+root_both_48_0_apoplast[[1]])
+
+
+apovenn <- ggVennDiagram::ggVennDiagram(both_apo, category.names = c('Leaf\n48h/0h', 'Leaf\n24h/0h', 'Root\n48h/0h'))+theme(legend.position = 'none')
+apovenn
+
+interunion <- function(set){
+  a_b <- set[[1]][set[[1]] %in% set[[2]]]
+  if(length(set)>2){
+  a_b_c <- a_b[a_b %in% set[[3]]]
+  return(a_b_c)
+  }else{
+    return(a_b)
+  }
+}
+
+apo_core <- interunion(both_apo)
+apo_core_t <- gsub('g', 't', apo_core)
+apo_core_t <- unlist(lapply(apo_core_t, function(x) paste(x, '.1', sep = '')))
+
+apo_core.fa <- cds[apo_core_t]
+ape::write.FASTA(x = apo_core.fa, file = 'apo_core.fna')
+ape::write.FASTA(x = ape::trans(apo_core.fa), file = 'apo_core.faa')
+
+load('df_leaf_geno.rda')
+load('df_root_geno.rda')
+df_leaf_geno <- lapply(df_leaf_geno, data.table)
+df_root_geno <- lapply(df_root_geno, data.table)
+
+lapply(df_leaf_geno[c(11:12, 1:7)], function(df) df[geneid %in% apo_core & padj<0.05, .(annot, log2FoldChange, padj, comp)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% apo_core & padj<0.05, .(annot, log2FoldChange, padj, comp)][order(padj, decreasing = F),])
+
+apo_core_words <- get_words(apo_core)
+make_wordcloud(word_list = apo_core_words, seed_n = 1234)
+
+
+```
+
+
+
+#word cloud of gene annotations
+```{r}
+install.packages("tm")  # for text mining
+install.packages("SnowballC") # for text stemming
+install.packages("wordcloud")
+install.packages("wordcloud2")
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library('wordcloud2')
+
+
+
+get_words <- function(gl){
+  ann <- cr[match(gl, crv3.2), cr]
+  ann <- substring(text = ann, first = 18)
+  ann <- unlist(lapply(ann, function(x) trimws(x)), recursive=F)
+  return(ann)
+}
+
+#Define wordcloud. function
+
+make_wordcloud <- function(word_list, seed_n=1234){
+  docs <- Corpus(VectorSource(word_list))
+  toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+  docs <- tm_map(docs, toSpace, "/")
+  docs <- tm_map(docs, toSpace, "@")
+  docs <- tm_map(docs, toSpace, "\\|")
+  
+  # Convert the text to lower case
+  docs <- tm_map(docs, content_transformer(tolower))
+  # Remove numbers
+  docs <- tm_map(docs, removeNumbers)
+  # Remove english common stopwords
+  docs <- tm_map(docs, removeWords, stopwords("english"))
+  # Remove your own stop word
+  # specify your stopwords as a character vector
+  docs <- tm_map(docs, removeWords, c('like', 'putative', 'protein', 'probable', 'subfamily', 'kda', 'member', 'domaincontaining', 'repeatcontaining', 'subunit')) 
+  # Remove punctuations
+  docs <- tm_map(docs, removePunctuation)
+  # Eliminate extra white spaces
+  docs <- tm_map(docs, stripWhitespace)
+  # Text stemming
+  # docs <- tm_map(docs, stemDocument)
+  
+  
+  dtm <- TermDocumentMatrix(docs)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  d <- data.frame(word = names(v),freq=v)
+  head(d, 10)
+  
+  set.seed(seed_n)
+  wordcloud(words = d$word, freq = d$freq, min.freq = 0, 
+            max.words=1999, random.order=FALSE, rot.per=0.35, 
+            colors=brewer.pal(8, "Dark2"))
+  #wordcloud2(data = d, fontFamily = 'arial')
+  return(d)
+}
+
+
+positive_leaf_gsea <- unique(unlist(gb[grep('leaf', comparison)][NES>0, leadingEdge]))
+negative_leaf_gsea <- unique(unlist(gb[grep('leaf', comparison)][NES<0, leadingEdge]))
+
+test <- gene_keyword_enrichment2(gene_set = positive_leaf_gsea)
+test2 <- gene_keyword_enrichment2(gene_set = negative_leaf_gsea)
+
+
+
+positive_root_gsea <- unique(unlist(gb[grep('root', comparison)][NES>0, leadingEdge]))
+negative_root_gsea <- unique(unlist(gb[grep('root', comparison)][NES<0, leadingEdge]))
+test3 <- gene_keyword_enrichment2(gene_set = positive_root_gsea)
+test4 <- gene_keyword_enrichment2(gene_set = negative_root_gsea)
+
+pdf('wordcloud_assoc_with_HighCd_leaf.pdf', width = 10, height = 10)
+make_wordcloud(word_list = rep(test$word,test$gene_word_freq), seed_n = 1234)
+dev.off()
+
+pdf('wordcloud_assoc_lowCd_leaf.pdf', width = 10, height = 10)
+make_wordcloud(word_list = rep(test2$word,test2$gene_word_freq), seed_n = 1234)
+dev.off()
+
+pdf('wordcloud_assoc_highCd_root.pdf', width = 10, height = 10)
+make_wordcloud(word_list = rep(test3$word,test3$gene_word_freq), seed_n = 1234)
+dev.off()
+
+pdf('wordcloud_assoc_lowCd_root.pdf', width = 10, height = 10)
+make_wordcloud(word_list = rep(test4$word,test4$gene_word_freq), seed_n = 1234)
+dev.off()
+
+word_list1 <- lapply(both48_0genes[[1]], get_words)
+
+wl_lf_24_0_apoplast <- lapply(both24_0apoplast[[1]], get_words)
+wl_rt_48_0_apoplast <- lapply(root_both_48_0_apoplast[[1]], get_words)
+
+wcbothapoplast <- make_wordcloud(word_list = word_list1, seed_n = 1234 )
+wcbothapoplast24 <- make_wordcloud(word_list = wl_le_24_0_apoplast, seed_n = 1234 )
+wcbothapoplastroot <- make_wordcloud(word_list = wl_rt_48_0_apoplast, seed_n = 1234 )
+
+
+pdf(file = 'wordcloud_both_lf_48_apoplast.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = word_list1, seed_n = 1234 ) 
+dev.off()
+
+pdf(file = 'wordcloud_both_lf_24_apoplast.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_le_24_0_apoplast, seed_n = 1234 )
+dev.off()
+
+pdf(file = 'wordcloud_both_rt_48_apoplast.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_rt_48_0_apoplast, seed_n = 1234 )
+dev.off()
+
+wcbothapoplast$word <- factor(wcbothapoplast$word, levels = wcbothapoplast$word)
+
+ggplot(wcbothapoplast, mapping = aes(y = freq, x = factor(word)))+
+  geom_col()+
+  theme(axis.text.x = element_text(angle = 270))
+```
+
+Example curve for explanation 
+
+```{r}
+
+gseaCurve(rl = gsea_leaf$leaf_pa121_tsh660_48h_48h_gsea_list
+curve_gsea <- gseaCurve(rl = rl, setlist = sl[gsea_test$pathway], gsea = gsea_test)
+    curve_gsea$set <- factor(curve_gsea$set, unique(curve_gsea$set), labels=go_terms[go_terms$ids %in% unique(curve_gsea$set), "go_names"])
+    gcurve <- ggplot()+gggsea::geom_gsea(curve_gsea)
+   
+     
+```
+
+
+#common response PlantCellWallType
+
+```{r}
+
+both48_0ptcw <- gsea_leaf$leaf_48h_0h_gsea_list[go_names=='plant-type cell wall', leadingEdge] #plant type cll wall
+
+both24_0ptcw <- gsea_leaf$leaf_24h_0h_gsea_list[go_names=='plant-type cell wall', leadingEdge] #plant type cll wall
+
+rt_both48_0ptcw <- gsea_root$root_48h_0h_gsea_list[go_names=='plant-type cell wall', leadingEdge] #plant type cll wall
+
+ggVennDiagram::ggVennDiagram(list(both24_0ptcw[[1]], both48_0ptcw[[1]], rt_both48_0ptcw[[1]]), category.names = c('Leaf\n48h/0h', 'Leaf\n24h/0h', 'Root\n48h/0h'))+theme(legend.position = 'none')
+
+ptcw_core <- interunion(list(both48_0ptcw[[1]], both24_0ptcw[[1]], rt_both48_0ptcw[[1]]))
+
+lapply(df_leaf_geno[c(11:12, 1:7)], function(df) df[geneid %in% ptcw_core[[1]] & padj<0.05, .(annot, log2FoldChange, padj, comp)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% ptcw_core & padj<0.05, .(annot, log2FoldChange, padj, comp)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% sl$'GO:000950' & padj<0.05, .(annot, log2FoldChange, padj, comp)][order(padj, decreasing = F),])
+
+wl_lf_both_48_ptcw <- lapply(both48_0ptcw, get_words)
+wl_lf_both_24_ptcw <- lapply(both24_0ptcw, get_words)
+wl_rt_both_48_ptcw <- lapply(rt_both48_0ptcw, get_words)
+
+wc_lf_both_48_ptcw <- make_wordcloud(wl_lf_both_48_ptcw, seed_n = 1234)
+wc_lf_both_24_ptcw <- make_wordcloud(wl_lf_both_24_ptcw, seed_n = 1234)
+wc_rt_both_48_ptcw <- make_wordcloud(wl_rt_both_48_ptcw, seed_n = 1234)
+
+pdf(file = 'wordcloud_both_lf_48_pcwt.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_lf_both_48_ptcw, seed_n = 1234 ) 
+dev.off()
+
+pdf(file = 'wordcloud_both_lf_24_pcwt.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_lf_both_24_ptcw, seed_n = 1234 )
+dev.off()
+
+pdf(file = 'wordcloud_both_rt_48_pcwt.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_rt_both_48_ptcw, seed_n = 1234 )
+dev.off()
+
+ggplot(wc_lf_both_24_ptcw, mapping = aes(y = freq, x = factor(word)))+
+  geom_col()+
+  theme(axis.text.x = element_text(angle = 270))
+
+
+#expansins
+lapply(df_root_geno, function(df) df[geneid %in% c("Tc01cons_g036570", "Tc01cons_g031460", "Tc01cons_g036550"),])
+
+
+```
+
+#copper ion-binding
+
+```{r}
+both48_0cib <- gsea_leaf$leaf_48h_0h_gsea_list[go_names=='copper ion binding', leadingEdge] #copper ion binding
+
+both24_0cib <- gsea_leaf$leaf_24h_0h_gsea_list[go_names=='copper ion binding', leadingEdge] #copper ion binding
+
+rt_both48_0cib <- gsea_root$root_48h_0h_gsea_list[go_names=='copper ion binding', leadingEdge] #copper ion binding
+
+cib_ids_common <- list(both48_0cib[[1]], both24_0cib[[1]], rt_both48_0cib[[1]])
+
+ggVennDiagram::ggVennDiagram(cib_ids_common, category.names = c('Leaf\n48h/0h', 'Leaf\n24h/0h', 'Root\n48h/0h'))+theme(legend.position = 'none')
+
+cib_core <- interunion(cib_ids_common)
+
+lapply(df_leaf_geno[c(11:12, 1:7)], function(df) df[geneid %in% cib_core & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% cib_core & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% sl$'GO:0005507' & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+
+wl_lf_both_48_cib <- lapply(both48_0cib, get_words)
+wl_lf_both_24_cib <- lapply(both24_0cib, get_words)
+wl_rt_both_48_cib <- lapply(rt_both48_0cib, get_words)
+
+wc_lf_both_48_cib<- make_wordcloud(wl_lf_both_48_cib, seed_n = 1234)
+wc_lf_both_24_cib <- make_wordcloud(wl_lf_both_24_cib, seed_n = 1234)
+wc_rt_both_48_cib <- make_wordcloud(wl_rt_both_48_cib, seed_n = 1234)
+
+
+
+```
+
+#plant-type seocnary cell wall biogenesis
+
+```{r}
+
+both48_0ptscwb <- gsea_leaf$leaf_48h_0h_gsea_list[go_names=='plant-type secondary cell wall biogenesis', leadingEdge] #plant-type secondary cell wall secondary biogenesis
+
+both24_0ptscwb <- gsea_leaf$leaf_24h_0h_gsea_list[go_names=='plant-type secondary cell wall biogenesis', leadingEdge] #plant-type secondary cell wall secondary biogenesis
+
+rt_both48_0ptscwb <- gsea_root$root_48h_0h_gsea_list[go_names=='plant-type secondary cell wall biogenesis', leadingEdge] #plant-type secondary cell wall secondary biogenesis
+
+ptscwb_ids_common <- list(both48_0ptscwb[[1]], both24_0ptscwb[[1]], rt_both48_0ptscwb[[1]])
+
+ggVennDiagram::ggVennDiagram(ptscwb_ids_common, category.names = c('Leaf\n48h/0h', 'Leaf\n24h/0h', 'Root\n48h/0h'))+theme(legend.position = 'none')
+
+ptscwb_core <- interunion(ptscwb_ids_common)
+
+lapply(df_leaf_geno[c(11:12, 1:7)], function(df) df[geneid %in% ptscwb_core & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% ptscwb_core & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+lapply(df_root_geno, function(df) df[geneid %in% sl$'GO:0009834' & padj<0.05, .(annot, log2FoldChange, padj, comp, Row.names)][order(padj, decreasing = F),])
+
+wl_lf_both_48_ptscwb <- lapply(both48_0ptscwb, get_words)
+wl_lf_both_24_ptscwb <- lapply(both24_0ptscwb, get_words)
+wl_rt_both_48_ptscwb <- lapply(rt_both48_0ptscwb, get_words)
+
+wc_lf_both_48_ptscwb<- make_wordcloud(wl_lf_both_48_ptscwb, seed_n = 1234)
+wc_lf_both_24_ptscwb <- make_wordcloud(wl_lf_both_24_ptscwb, seed_n = 1234)
+wc_rt_both_48_ptscwb <- make_wordcloud(wl_rt_both_48_ptscwb, seed_n = 1234)
+
+
+```
+
+# ATP-dependent protein folding chaperone
+
+```{r}
+both48_0atpdpf <- gsea_leaf$leaf_48h_0h_gsea_list[go_names=='ATP-dependent protein folding chaperone', leadingEdge] #ATP-dependent protein folding
+
+rt_both48_0atpdpf <- gsea_root$root_48h_0h_gsea_list[go_names=='ATP-dependent protein folding chaperone', leadingEdge] #ATP-dependent protein folding
+
+#rt_both48_0atpdpf[[1]] %in% both48_0atpdpf[[1]]
+
+wl_lf_both_48_atpdpf <- lapply(both48_0atpdpf, get_words)
+#wl_lf_both_24_atpdpf <- lapply(both24_0atpdpf, get_words)
+wl_rt_both_48_atpdpf <- lapply(rt_both48_0atpdpf, get_words)
+
+wc_lf_both_48_atpdpf <- make_wordcloud(wl_lf_both_48_atpdpf, seed_n = 1234)
+#wc_lf_both_24_atpdpf <- make_wordcloud(wl_lf_both_24_atpdpf, seed_n = 1234)
+wc_rt_both_48_atpdpf <- make_wordcloud(wl_rt_both_48_atpdpf, seed_n = 1234)
+
+pdf(file = 'wordcloud_both_lf_48_atpdpf.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_lf_both_48_atpdpf, seed_n = 1234 ) 
+dev.off()
+
+pdf(file = 'wordcloud_both_rt_48_atpdpf.pdf', width = 4.4, height =4.4, onefile = F)
+make_wordcloud(word_list = wl_rt_both_48_atpdpf, seed_n = 1234 )
+dev.off()
+
+
+df_leaf_geno <- lapply(df_leaf_geno, data.table)
+
+
+
+
+lapply(df_leaf_geno, function(test) test[geneid %in% sl['GO:0009505'][[1]],.(geneid, sig, log2FoldChange, padj, comp, araport, annot)])
+
+
+
+ggVennDiagram::ggVennDiagram(list(both48_0atpdpf[[1]], rt_both48_0atpdpf[[1]]), category.names = c('Leaf\n48h/0h', 'Root\n48h/0h'))+theme(legend.position = 'none')
+
+```
+
+```{r}
+ggVennDiagram::ggVennDiagram(list(unlist(list(both24_0ptcw[[1]], both48_0ptcw[[1]], rt_both48_0ptcw[[1]])), unlist(both_apo)), category.names = c('Apoplast', 'Plant-type\ncell wall'))+
+  theme(legend.position = 'none')
+
+interunion(list(unlist(list(both24_0ptcw[[1]], both48_0ptcw[[1]], rt_both48_0ptcw[[1]])), unlist(both_apo)))
+
+```
+
+
+# between genotypes wordcloud
+```{r}
+#get gene id from leadin edges
+
+unique(gsea_leaf$leaf_pa121_tsh660_48h_48h_gsea_list[, go_names])
+lapply(gsea_leaf, function(x) unique(x[, go_names]))
+
+```
+
+
+```{r}
+cs_annot <- goterm[goterm$id %in% gene_list1$`Casparian strip`, 'annot']
+cs_annot <- lapply(cs_annot, function(x) strsplit(x, split = 'Note=')[[1]][2])
+cs_annot <- lapply(cs_annot, function(x) strsplit(x, split = 'Tc')[[1]][1])
+
+```
+
+
+
+```{r}
+named_list <- c(named_list, unlist(grdf[ comparison %in% 'root_48h_0h_gsea_list.txt', leadingEdge]))
+named_list <- unique(named_list)
+
+gene_cat <- data.frame(gene_id=unlist(named_list, recursive = T), Category=NA)
+
+make_zscr_heatmap(data = counts(dd_all.le), file_name = 'both_gsea_leading_heatmap.pdf', ngene = length(named_list), named_genes = named_list)
+
+load('df_leaf_geno.rda')
+
+gsea_heatmap_ids <- lapply(df_leaf_geno[c('leaf_48h_0h', 'leaf_24h_0h')], function(x) {
+  y <- x[x$geneid %in% named_list, ]
+  print(sum(y$padj<0.05, na.rm = T))
+  return(na.omit(y[y$padj<0.05, 'geneid']))
+})
+
+gsea_heatmap_ids <- unique(unlist(gsea_heatmap_ids, recursive = T))
+
+dd_all.le <- estimateSizeFactors(dd_all.le)
+df_mat <- counts(dd_all.le)
+df_mat <- scale(df_mat)
+df_mat <- df_mat[rownames(df_mat) %in% gsea_heatmap_ids, ]
+
+
+col = greenred
+
+pheatmap(mat = df_mat, cluster_rows = F, cluster_cols = F)
+density.info="none", Colv=NULL, #kinda looks like shit idk maybe jut the wordcloud
+              dendrogram=dendo, trace="none", margins=c(1,1), lhei=c(1,1), srtCol = 45, col = col)
+
+heatmap.2(df_mat, density.info="none", Colv=NULL, #kinda looks like shit idk maybe jut the wordcloud
+              dendrogram=dendo, trace="none", margins=c(1,1), lhei=c(1,1), srtCol = 45, col = col)
+    legend(x=c('top'), ncol=2, legend=unique(f), col=mypal[], pch=15)
+
+
+make_zscr_heatmap(data = counts(dd_all.le), file_name = 'test_both', ngene = length(named_genes), named_genes = gsea_heatmap_ids, ncat = 1, colsidecolors = F, named_cat = c('one', 'two', 'three'))
+
+
+```
+
