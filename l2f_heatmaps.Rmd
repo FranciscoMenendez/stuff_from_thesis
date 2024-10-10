@@ -1,0 +1,2046 @@
+---
+title: "l2f_heatmaps"
+author: "francisco.menendez.burns"
+date: "2023-07-11"
+output: html_document
+---
+
+# MAKING HEATMAPS FOR THE SMOKING GUN P-450, AND PHY-B, ABA->PYL
+```{r}
+
+library(ComplexHeatmap)
+library(ggplot2)
+library(magrittr)
+library(data.table)
+library(colorRamp2)
+library(fgsea)
+library(ape)
+
+load('ORA_geno2.rda')
+load('cr.rda')
+
+
+# load the list of GO terms in each cluster for Root BP
+load('rnkRtBP.rda')
+load('rnkLfBP.rda')
+load('rnkRtMF.rda')
+
+load('df_res.rda')
+
+# read fasta CDS of the b97
+b97cds <- read.FASTA('TC_B97_consensusV2_rev2021.cds.fna')
+
+
+source('hm_l2_functions.R')
+
+#define some colors
+c25 <- c(
+  "dodgerblue2", "#E31A1C", # red
+  "green4",
+  "#6A3D9A", # purple
+  "#FF7F00", # orange
+  "black", "gold1",
+  "skyblue2", "#FB9A99", # lt pink
+  "palegreen2",
+  "#CAB2D6", # lt purple
+  "#FDBF6F", # lt orange
+  "gray70", "khaki2",
+  "maroon", "orchid1", "deeppink1", "blue1", "steelblue4",
+  "darkturquoise", "green1", "yellow4", "yellow3",
+  "darkorange4", "brown"
+)
+
+```
+
+
+# Make lists of all genes in clusters from ORA_geno2 and print a FASTA file with the gene CDS
+
+```{r}
+
+if (!grep('rtcl1.fasta', dir())){
+  #helper funciton to get genes with name format
+  genes_cluster <- function(cluster_number, ORA, rnk, cluster=T, gene_list){
+    if(cluster==T){
+      cl   <- unique(unlist(ORA[pathway %in% rnk[cluster==cluster_number, GO_ID][[1]], overlapGenes])) 
+      cl <- gsub(pattern = 'g', replacement = 't', x = cl)
+      cl <- paste(cl, '.1', sep = '')  
+      
+    }else{
+      cl <- gene_list
+      cl <- gsub(pattern = '_g', replacement = '_t', x = cl)
+      cl <- paste(cl, '.1', sep = '') 
+    }
+    return(cl)
+  }
+  
+  # one for all RT48h_0h
+  write.FASTA(b97cds[genes_cluster(cluster = F, gene_list = df_res$root_48h_0h[sig=='FDR<0.05', geneid])], file='rt48h_0h.fna')
+  write.FASTA(trans(b97cds[genes_cluster(cluster = F, gene_list = df_res$root_48h_0h[sig=='FDR<0.05', geneid])]), file='rt48h_0h.faa')
+  
+  # List and Print out FASTA file with genes in each cluster
+  
+  # Genes in cluster 1 ABA carotenoid signaling Blue light
+  rtcl1 <- genes_cluster(cluster_number = 1, ORA = ORA_root_geno2, rnk = rnkRtBP)
+  write.FASTA(b97cds[rtcl1], file = 'rtcl1.fasta')
+  write.FASTA(trans(b97cds[rtcl1]), file = 'rtcl1.faa')
+  
+  # Genes in cluster 2 Catabolic process
+  rtcl2 <- genes_cluster(cluster_number = 2, ORA = ORA_root_geno2, rnk = rnkRtBP)
+  write.FASTA(b97cds[rtcl2], file = 'rtcl2.fasta')
+  write.FASTA(trans(b97cds[rtcl2]), file = 'rtcl2.faa')
+  
+  # Genes in cluster 6 Ion transport
+  rtcl6 <- genes_cluster(6, ORA_root_geno2, rnkRtBP)
+  write.FASTA(b97cds[rtcl6], file = 'rtcl6.fasta')
+  write.FASTA(trans(b97cds[rtcl6]), file = 'rtcl6.faa')
+  
+  # Genes in cluster 7 dephosphorylation (only in TSH660)
+  rtcl7 <- genes_cluster(7, ORA_root_geno2, rnkRtBP)
+  write.FASTA(b97cds[rtcl7], file = 'rtcl7.fasta')
+  write.FASTA(trans(b97cds[rtcl7]), file = 'rtcl7.faa')
+  
+  
+  # Genes in Cluster 1 MF
+  rtclMF1 <- genes_cluster(1, ORA_root_geno2, rnk = rnkRtMF)
+  write.FASTA(b97cds[rtclMF1], file = 'rtclMF1.fasta')
+  write.FASTA(trans(b97cds[rtclMF1]), file = 'rtclMF1.faa')
+  
+}
+
+
+
+```
+
+```{r}
+#all leaves 48h_0h
+
+if (!grep('lf48h_0h.fna', dir())){
+  
+  write.FASTA(b97cds[genes_cluster(cluster = F, gene_list = df_res$leaf_48h_0h[sig=='FDR<0.05', geneid])], file='lf48h_0h.fna')
+  write.FASTA(trans(b97cds[genes_cluster(cluster = F, gene_list = df_res$leaf_48h_0h[sig=='FDR<0.05', geneid])]), file='lf48h_0h.faa')
+  
+  # Genes in cluster 1 protein refolding
+  lfcl1 <- genes_cluster(cluster_number = 1, ORA = ORA_leaf_geno2, rnk = rnkLfBP)
+  write.FASTA(b97cds[lfcl1], file = 'lfcl1.fasta')
+  write.FASTA(trans(b97cds[lfcl1]), file = 'lfcl1.faa')
+  
+  # Genes in cluster 2 hsp
+  lfcl2 <- genes_cluster(cluster_number = 2, ORA = ORA_leaf_geno2, rnk = rnkLfBP)
+  write.FASTA(b97cds[lfcl2], file = 'lfcl2.fasta')
+  write.FASTA(trans(b97cds[lfcl2]), file = 'lfcl2.faa')
+  
+  # Genes in cluster 2 hsp
+  lfcl3 <- genes_cluster(cluster_number = 3, ORA = ORA_leaf_geno2, rnk = rnkLfBP)
+  write.FASTA(b97cds[lfcl3], file = 'lfcl3.fasta')
+  write.FASTA(trans(b97cds[lfcl3]), file = 'lfcl3.faa')
+}
+
+```
+
+
+# READ IN PLANT TRIBES SUMMARY RESULTS AND DETERMINE BEST SUPERORTHOGROUP
+
+```{r}
+
+rtcl1pt <- read.delim('plant_tribes_results/RtCl1/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+sopcl <- rtcl1pt[, c(1:2, 40:49)]
+rtcl1pt <- rtcl1pt[, c(1:2,51)]
+rtcl1pt$Gene.ID <- gsub(pattern = '_t', replacement = '_g', x = rtcl1pt$Gene.ID)
+rtcl1pt$Gene.ID <- substring(text = rtcl1pt$Gene.ID, first = 1, last = 16)
+rtcl1pt$cr <- cr[match(x = rtcl1pt$Gene.ID, table = crv3.2), cr]
+rtcl1pt <- rtcl1pt[, c(1,2,4,3)]
+rtcl1pt <- data.table(rtcl1pt)
+
+setwd('theca_arath_orthos_RtCL1/')
+
+## Read thesuperrthgroups 
+
+rt48pt <- read.delim('plant_tribes_results/Rt48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+rt48pt <- rt48pt[,1:49]
+soprt <- rt48pt[, c(1:2, 40:49)]
+soprt <- data.table(soprt)
+mods <- colnames(soprt[,2:12])
+#soprt[ , (mods) := lapply(.SD, "^", 2), .SDcols = mods] 
+
+#soprt[ , lapply (.SD, function(x) length(unique(x))), .SDcols = mods]
+plot(x = 1:11, y = soprt[ , lapply (.SD, function(x) length(unique(x))), .SDcols = mods]) #sog 8 is the group that reaches the maxima 
+
+
+## ADD PLANT TRIBE ORTHOGROUP TO THE RESULTS TABLE
+
+orthosRt <- read.delim('plant_tribes_results/Rt48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+
+orthosRt <- orthosRt[, c(1:2,46,51)] # add SuperOrthogroup.3.5
+orthosRt$Gene.ID <- gsub(pattern = '_t', replacement = '_g', x = orthosRt$Gene.ID)
+orthosRt$Gene.ID <- substring(text = orthosRt$Gene.ID, first = 1, last = 16)
+orthosRt$cr <- cr[match(x = orthosRt$Gene.ID, table = crv3.2), cr]
+orthosRt <- orthosRt[, c(1, 2, 3, 5, 4)]
+orthosRt <- data.table(orthosRt)
+orthosRt <- orthosRt[order(Orthogroup.ID, decreasing = F)]
+#orthosRt$arath <- substring(apply(orthosRt, MARGIN = 1, FUN = function(x) names(sequence_list[paste('og_',trimws(x['Orthogroup.ID']), sep='')][[1]][1])), first = 18)
+
+
+df_res$root_48h_0h$orthogroup <- orthosRt[match(df_res$root_48h_0h$geneid, orthosRt$Gene.ID),Orthogroup.ID]
+df_res$root_48h_0h$superortho <- orthosRt[match(df_res$root_48h_0h$geneid, orthosRt$Gene.ID),SuperOrthogroup.3.5]
+
+
+setwd('../')
+
+# Same for leaves 
+## ADD PLANT TRIBE ORTHOGROUP TO THE RESULTS TABLE
+
+orthosLf <- read.delim('plant_tribes_results/Lf48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+soplf <- orthosLf[,1:49]
+soplf <- soplf[, c(1:2, 40:49)]
+soplf <- data.table(soplf)
+mods <- colnames(soplf[,2:12])
+
+plot(x = 1:11, y = soplf[ , lapply (.SD, function(x) length(unique(x))), .SDcols = mods]) #sog 8 is the group that reaches the maxima 
+
+orthosLf <- orthosLf[, c(1:2,47,51)]
+orthosLf$Gene.ID <- gsub(pattern = '_t', replacement = '_g', x = orthosLf$Gene.ID)
+orthosLf$Gene.ID <- substring(text = orthosLf$Gene.ID, first = 1, last = 16)
+orthosLf$cr <- cr[match(x = orthosLf$Gene.ID, table = crv3.2), cr]
+orthosLf <- orthosLf[, c(1,2,3,5, 4)]
+orthosLf <- data.table(orthosLf)
+orthosLf <- orthosLf[order(Orthogroup.ID, decreasing = F)]
+
+
+df_res$leaf_48h_0h$orthogroup <- orthosLf[match(df_res$leaf_48h_0h$geneid, orthosLf$Gene.ID),Orthogroup.ID]
+df_res$leaf_48h_0h$superortho <- orthosLf[match(df_res$leaf_48h_0h$geneid, orthosLf$Gene.ID),"SuperOrthogroup.4.0"]
+
+rm(soprt, soplf, sopcl, mods)
+
+
+
+```
+
+
+# ADD THE FIRST ARATH ID TO EACH OG
+
+```{r}
+# Load the Biostrings package
+library(Biostrings)
+
+# Set WD 
+
+setwd('theca_arath_orthos_RtCl1/')
+
+# Get a list of all the FASTA files in the directory
+fasta_files <- list.files(full.names = F)
+fasta_files <- fasta_files[grep('*.fna', fasta_files)]
+
+# Create an empty list to store the sequences
+sequence_list <- list()
+
+# Read each FASTA file and store the sequences in the list
+for (file in fasta_files) {
+  sequences <- readDNAStringSet(file)
+  #last_header <- names(sequences)[length(sequences)]
+  #names(sequences) <- last_header
+  sequence_list[[file]] <- sequences
+}
+
+names(sequence_list) <- lapply(strsplit(names(sequence_list), '_'), function(x) x[[1]])
+names(sequence_list) <- paste('og_', names(sequence_list), sep='')
+
+
+names(sequence_list[paste('og_', as.character(orthosRt$Orthogroup.ID[[1]]), sep='') ][[1]])[1]
+
+rtcl1pt$arath <- substring(apply(rtcl1pt, MARGIN = 1, FUN = function(x) names(sequence_list[paste('og_',trimws(x['Orthogroup.ID']), sep='')][[1]][1])), first = 18)
+
+if (!("root_cluster1_gene_fams.txt" %in% dir() )) {
+  write.table(rtcl1pt, 'root_cluster1_gene_fams.txt', quote = F, sep = '\t', row.names = F, append = F)
+}
+
+rtcl1pt <- rtcl1pt[order(Orthogroup.ID)]
+
+
+
+
+############################################ FOR ALL THE DEG
+
+#SET WORKING DIR
+
+setwd('plant_tribes_results/Rt48h_0h/')
+
+# Get a list of all the FASTA files in the directory
+fasta_files <- list.files(full.names = F)
+fasta_files <- fasta_files[-grep('.summary', fasta_files)]
+# Create an empty list to store the sequences
+sequence_list <- list()
+
+# Read each FASTA file and store the sequences in the list
+for (file in fasta_files) {
+  sequences <- readDNAStringSet(file)
+  #last_header <- names(sequences)[length(sequences)]
+  #names(sequences) <- last_header
+  sequence_list[[file]] <- sequences
+}
+
+names(sequence_list) <- lapply(strsplit(names(sequence_list), '_'), function(x) x[[1]])
+names(sequence_list) <- paste('og_', names(sequence_list), sep='')
+orthosRt$arath <- substring(apply(orthosRt, MARGIN = 1, FUN = function(x) names(sequence_list[paste('og_',trimws(x['Orthogroup.ID']), sep='')][[1]][1])), first = 18)
+df_res$root_48h_0h$arath <- orthosRt[match(df_res$root_48h_0h$geneid, Gene.ID),arath]
+
+
+# CREATE A TABLE WITH ALL ARABIDOPSIS ORTHOLOGOUS TO THE CACAO DEG 
+
+orthos <- NULL
+
+for (i in 1:length(sequence_list)) {
+  
+  orthos <- rbind(orthos, data.table(arath=grep('Arath', names(sequence_list[[i]]), value = T), og=names(sequence_list[i])))
+  
+}
+
+
+
+########################################### FOR ALL THE DEG LEAF
+
+#SET WORKING DIR
+
+setwd('../Lf48h_0h/')
+
+# Get a list of all the FASTA files in the directory
+
+fasta_files <- grep('.fna', dir(), value = T)
+sequence_list <- list()
+
+# Read each FASTA file and store the sequences in the list
+for (file in fasta_files) {
+  sequences <- readDNAStringSet(file)
+  #last_header <- names(sequences)[length(sequences)]
+  #names(sequences) <- last_header
+  sequence_list[[file]] <- sequences
+}
+
+names(sequence_list) <- lapply(strsplit(names(sequence_list), '_'), function(x) x[[1]])
+names(sequence_list) <- paste('og_', names(sequence_list), sep='')
+
+orthosLf$arath <- substring(apply(orthosLf, MARGIN = 1, FUN = function(x) names(sequence_list[paste('og_',trimws(x['Orthogroup.ID']), sep='')][[1]][1])), first = 18)
+
+df_res$leaf_48h_0h$arath <- orthosLf[match(df_res$leaf_48h_0h$geneid, orthosLf$Gene.ID),"arath"]
+
+#save(df_res, file = 'df_res.rda')
+```
+
+
+# KEGG MAPPING
+# READ DATA FROM HTML FILE
+
+```{r}
+library(rvest)
+setwd("~/Documents/PSU/Lab/Cd/1project/Cd Transcriptome")
+
+kegg_html <- function(html_file, tissue='root'){
+  
+  library(rvest)
+  
+  # Read the HTML content of the webpage
+  webpage <- read_html(x = html_file)
+  
+  # Extract <li> elements
+  li_elements <- webpage %>% html_nodes("li")
+  
+  # Initialize empty lists for storing data
+  dd_contents <- list()
+  pathways <- list()
+  
+  # Iterate over each <li> element
+  for (li_element in li_elements) {
+    # Extract the <a> tag within the <li> element
+    a_tag <- li_element %>% html_node("a")
+    
+    # Extract the pathway ID and name from the <a> tag
+    pathway_id <- a_tag %>% html_text(trim = TRUE)
+    pathway_name <- a_tag %>% html_node(xpath = "following-sibling::text()") %>% html_text(trim = TRUE)
+    
+    # Extract the <dd> tags within the <li> element
+    dd_tags <- li_element %>% html_nodes("dd")
+    
+    # Extract a tags
+    a_content <- webpage %>% html_nodes("a") %>% html_text()
+    a_content <- a_content[grep("K", a_content)]
+    
+    # Iterate over each <dd> tag
+    for (dd_tag in dd_tags) {
+      # Extract the content of the <dd> tag
+      dd_content <- dd_tag %>% html_text(trim = TRUE)
+      
+      # Append the <dd> content and pathway information to the respective lists
+      dd_contents <- append(dd_contents, dd_content)
+      pathways <- append(pathways, paste0(pathway_id, " - ", pathway_name))
+    }
+  }
+  
+  # Create a data frame with the extracted content
+  kp <- data.table(DdContent = dd_contents, kofam=a_content, Pathway = pathways)
+  
+  # Format pathway names
+  kp$Pathway <- unlist(lapply(kp$Pathway, function(x) substring(x, 1, nchar(x)-2)) )
+  
+  # make character vectors from the geneids
+  
+  kp$DdContent <- unlist(lapply(kp$DdContent, function(x) strsplit(x, ',')), recursive = F)
+  kp$DdContent <- lapply(kp$DdContent, function(x) trimws(x))
+  
+  kp <- data.table(
+    gene_id = unlist(kp$DdContent),
+    category = rep(kp$Pathway, sapply(kp$DdContent, length)),
+    kofam = rep(kp$kofam, sapply(kp$DdContent, length))
+  )
+  
+  
+  kp$lookup <- gsub(pattern = '_t',replacement = '_g',x = kp$gene_id )
+  kp$lookup <- substring(kp$lookup, first = 1, last = 16)
+  kp$cr <- cr[match(kp$lookup, crv3.2), cr]
+  kp$araport <- cr[match(kp$lookup, crv3.2), araport2]
+  if(tissue=='root'){
+    kp$orthogroup <- orthosRt[match(kp$lookup, Gene.ID),Orthogroup.ID]
+    kp$arath <- orthosRt[match(kp$lookup, Gene.ID),arath]
+    
+  }else{
+    kp$orthogroup <- orthosLf[match(kp$lookup, Gene.ID),Orthogroup.ID]
+    kp$arath <- orthosLf[match(kp$lookup, Gene.ID),arath]
+  }
+  kp <- kp[, c(1, 4, 2, 3, 7, 5, 6, 8)]
+  
+  return(kp)
+}
+
+rtcl1_kp <- kegg_html(html_file  = 'kegg_hacking/kegg_rtcl1BP_pathway_html.html.txt')
+
+lfcl1_kp <- kegg_html('kegg_hacking/lfcl1BP_kegg_mapper.html', tissue = 'leaf')
+
+rt48kp <- kegg_html(html_file = 'kegg_hacking/rt_48_0_kp.html')
+
+write.table(lfcl1_kp, file = 'sup_kegg.txt', append = F, quote = F, sep = '\t', row.names = F, col.names = T)
+write.table(rtcl1_kp, file = 'sup_kegg_rt.txt', append = F, quote = F, sep = '\t', row.names = F, col.names = F)
+
+```
+
+# FROM ROOT CLUSTERS
+
+# ABA pathway
+
+ABA hydrolase (CYP450 family) can turn ABA into Phaseic acid
+
+```{r}
+
+
+ABA_signal_transduc_all <- rtcl1_kp[grep('transduction', tolower(category)), ]
+ABA_signal_transduction <- NULL
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('srk', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('py', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('acid-insensitive', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('2c', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('tga', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('hbp', tolower(cr)), ])
+
+#df_res$root_48h_0h[grep('AT5G13630', arath)] #plasid ABA receptor magnesium chelatease Chlh
+
+ABA_signal_transduction_hmd <- hm_data(gene_ids = c(ABA_signal_transduction[, lookup], df_res$root_48h_0h[grep('AT5G13630', arath), geneid]), gfam = 'ABA signaling')
+
+aba_pathway_hm <- hm_l2(lis = list(carotenoid_biosynthesis, ABA_signal_transduction_hmd))  
+
+```
+
+# ABA signaling pathway
+
+```{r}
+
+#Signaling
+
+carotenoid_signaling <- hm_data(c(df_res$root_48h_0h[orthogroup %in% ABA_signal_transduction[, orthogroup], geneid], df_res$root_48h_0h[grep('AT5G13630', arath), geneid]))
+
+carotenoid_signaling[c(1, 3)] <- lapply(carotenoid_signaling[c(1, 3)], add_labels_to_factor, column_name = 'gfam', labels = c('TGA', 'PYL', 'SRK2', 'PP2CA', 'PP2CB', 'ABI', 'CHLH'))
+
+
+#The log2 fold genes
+
+#biosynthesis
+
+carotenoid_biosynthesis <- hm_data(df_res$root_48h_0h[orthogroup %in% rtcl1_kp[grep('carotenoid', tolower(category)), orthogroup], geneid])
+
+carotenoid_biosynthesis[c(1, 3)] <- lapply(carotenoid_biosynthesis[c(1, 3)], add_labels_to_factor, column_name = 'gfam', labels = c('XDH', 'ABAH', 'CCD', 'NCED', 'IAO', 'ZEP'), level_order=c('ZEP', 'NCED', 'XDH', 'IAO', 'ABAH', 'CCD'))
+
+hm_l2(list(carotenoid_biosynthesis))
+
+
+#draw main heatmap
+aba_pathway_hm <- hm_l2(list(carotenoid_biosynthesis, carotenoid_signaling), steps = T, ncbi = T)
+
+#legend for *
+lgd_sig = Legend(pch = c("*", '**', '***'), type = "points", labels = c('< 0.05', '< 0.01', '< 0.001'), title = 'Significance')
+
+#arabidopsis RBBH 
+aranames_aba <- cr[match(aba_pathway_hm[[3]]$geneids, crv3.2),.(ncbi, araport2)][, araport2]
+aranames_aba[is.na(aranames_aba)] <- ''
+
+#print out pdf of heatmap
+
+pdf(file = 'aba_pathway_hm.pdf', width = 8, height = 10)
+aba_pathway_hm[[1]]+
+  rowAnnotation(labels = anno_text(aba_pathway_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(aba_pathway_hm[[4]]))))+
+  rowAnnotation(labels   = anno_text(aranames_aba, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_aba))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+########## split only biosynthesis
+
+
+
+```
+
+
+# Stigolactone
+
+Strigolactones are class of carotenoid derived signaling hormones that have been implicated in the response to drought and involved in root remodeling. Within our cluster there are no Strigolactone biosynthetic genes exept for more auxiliary (MAX) branches and suppressor of MAX (SMAX) a carotenoid cleavage dioxiganases (CCD). These carotene cleavage enzymes, which are distinct from the NCED family involved in ABA biosynthesis, are respnsible for the synthesis of strigolactone from beta carotene.
+
+Strigolactones are produced in the roots and actively moved into the shoots, suggesting that strigolactones are communicating and directing the shoot architecture based on nutrient availability of the roots. SL are also synthesized in the roots after P and N starvation, in the case of P it signals the acquisition fo arbuscular microrizae (AM). 
+
+
+QUESTION: Are the SL biosynthetic steps in T. cacao the same as in A.thaliana. Are there orthologous proteins to those proteins and genes that carry out the biosynthetic steps in A. thaliana found in T. cacao?
+
+dwarf27 from arabidopsis.org: AT1G03055 (D27), AT1G64680 (D27-like), AT4G01995 (D27-like), no upregulated orthos
+
+after dwarf27 isomerization, CCD8 converts 9cis carotene to 9-cis-apo-carotenal 
+
+CCD8 from arabidopsis: AT2G44990 (CCD8), no upregulated orthos but KEGG placed a CCD8 into the pathway
+
+Find orthogroups for each
+
+MAX1 in arabidopsis is AT2G26170,which has an orthologue in cacao callef thromboxine synthase or CYPp450711a1 Tc09cons_g004980, whic is not differentially epressed under the conditions
+
+
+TO DO: 
+1. identify the genes in Arabidopsis, confirmthe orthologues in cacao.
+2. Review the results from KEGG pathway mapper: only the CCD8 was classified, yet not the same orthogrup as the arabidopsis CCD8
+
+
+ Strigolactone biosynthesis
+ MAX1 in arabidopsis AT2G26170: og in cacao Tc09cons_t004980.1
+ dwarf27 from arabidopsis.org: AT1G03055 (D27), AT1G64680 (D27-like), AT4G01995 (D27-like), no upregulated orthos
+ MAX3/CCD7 AT2G44990 orthologue was not DE
+ MAX4/CCD8 AT4G32810 
+
+
+MAX4 in cacao is Tc09cons_g003960, mapped by kegg and also in the same orthogroup as the Arabidopsis (only one in arath)
+This one gene is classified as Strigolactone synthesis 
+
+
+
+
+# we will attepmpt to find the OG for the Carotenoid Cleavage dioxigenases
+
+```{r}
+cco <- df_res$root_48h_0h[grep('cleavage dioxygenase', tolower(annot)),][sig=='FDR<0.05', geneid]
+cco <- gsub('_g', '_t', cco)
+cco <- paste(cco, '.1', sep='')
+
+write.FASTA(b97cds[cco], file = 'cco.fna')
+write.FASTA(trans(b97cds[cco]), file = 'cco.faa')
+
+ccd <- df_res$root_48h_0h[grep('cleavage dioxygenase', tolower(annot)),][sig=='FDR<0.05', ] #contains ortho to max4
+ccd <- ccd[!(ccd$geneid %in% carotenoid_biosynthesis$Rtl2f$geneids)]
+ccd <- ccd[!(grep('extradiol', tolower(annot))),]
+
+max <- df_res$root_48h_0h[grep('max', tolower(annot)),][ sig=='FDR<0.05', ]
+
+ccd_hm <- hm_data2(gene_ids = ccd$geneid, tissue = 'root')
+ccd_hm[c(1,3)] <- lapply(ccd_hm[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('CCD1', 'CCD8', 'CCD1' ))
+
+max_hm <- hm_data2(gene_ids = max$geneid, tissue = 'root')
+
+max_hm[c(1,3)] <- lapply(max_hm[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('SMXL', 'MAX2'))
+
+
+#all carotenoids from KEGG
+#Signaling
+
+ABA_signal_transduc_all <- rtcl1_kp[grep('transduction', tolower(category)), ]
+ABA_signal_transduction <- NULL
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('srk', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('py', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('acid-insensitive', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('2c', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('tga', tolower(cr)), ])
+ABA_signal_transduction <- rbind(ABA_signal_transduction, ABA_signal_transduc_all[grep('hbp', tolower(cr)), ])
+
+carotenoid_signaling <- hm_data(c(df_res$root_48h_0h[orthogroup %in% ABA_signal_transduction[, orthogroup], geneid], df_res$root_48h_0h[grep('AT5G13630', arath), geneid]))
+carotenoid_signaling <- hm_data2(c(df_res$root_48h_0h[orthogroup %in% ABA_signal_transduction[, orthogroup], geneid], df_res$root_48h_0h[grep('AT5G13630', arath), geneid]), tissue = 'root')
+
+carotenoid_signaling[c(1, 3)] <- lapply(carotenoid_signaling[c(1, 3)], add_labels_to_factor, column_name = 'gfam', labels = c('TGA', 'PYL', 'SRK2', 'PP2CA', 'PP2CB', 'ABI', 'CHLH'))
+
+#Biosynthesis
+
+carotenoid_biosynthesis_all <- hm_data2(df_res$root_48h_0h[orthogroup %in% rt48kp[grep('carotenoid', tolower(category)), orthogroup][-15], geneid], tissue = 'root') #remove the last one since its in the ccd list, and it will be classified as strolactone biosynthesis 
+
+carotenoid_biosynthesis_all[c(1, 3)] <- lapply(carotenoid_biosynthesis_all[c(1, 3)], add_labels_to_factor, column_name = 'gfam', labels = c('XDH', 'ABAH', 'CCD4', 'NCED', 'PSY', 'IAO', 'LYC', 'ZEP', 'BCH1'), level_order=c('LYC', 'BCH1', 'ZEP', 'NCED', 'XDH', 'IAO', 'ABAH', 'CCD4', 'PSY'))
+
+#IAOO (OG 1526) might need a phylogeny in order to differentiate the ABA (AT2G27150.1) and IAA (AT5G20960.1) enzymes
+
+
+
+
+orthogroup       arath    araport2
+ 1:         78 AT2G47130.1        <NA>  XDH
+ 2:         78 AT2G47130.1        <NA>
+ 3:         78 AT2G47130.1        <NA>
+ 4:         78 AT2G47130.1        <NA>
+ 5:         78 AT2G47130.1        <NA>
+ 6:         78 AT2G47130.1        <NA>
+ 7:        788 AT2G29090.1        <NA>  ABAH
+ 8:        788 AT2G29090.1        <NA>
+ 9:        788 AT2G29090.1        <NA>
+10:        829 AT4G19170.1        <NA>  CCD4
+11:       1168 AT4G18350.1        <NA>  NCED2
+12:       1168 AT4G18350.1 AT3G24220.1  NCED6
+13:       1433 AT5G17230.3        <NA>  PSY
+14:       1433 AT5G17230.3        <NA>  PSY
+15:       1526 AT2G27150.1        <NA>  AAO3
+16:       1526 AT2G27150.1 AT5G20960.2  AAO1
+17:       1562 AT3G10230.1        <NA>  LYC (Lycopene cyclase)
+18:       3061 AT5G67030.1        <NA>  ZEP (ABA1)
+19:       3263 AT4G25700.1        <NA>  BCH1
+20:       4220 AT4G32810.1        <NA>  MAX (more auxilliary branching)
+
+
+lis <- list(ccd_hm, max_hm, carotenoid_biosynthesis_all, carotenoid_signaling )
+# roots and leaves 
+apo4_hm <- hm_l2(list(ccd_hm, max_hm, carotenoid_biosynthesis_all, carotenoid_signaling ), steps = c('SGLN SYN',"SGLN SYG", 'ABA SYN', 'ABA SIG'), ncbi = F, tissue = 'both')
+
+pdf(file = 'apo4_pathway_hm.pdf', width = 5, height = 8 )
+apo4_hm[[1]]+
+  rowAnnotation(labels = anno_text(apo4_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(apo4_hm[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+```
+
+# PLOT AL GENES IN LINES 
+```{r}
+
+
+#plot lines all together
+
+
+carot_lines_ids <- unlist(lapply(list(ccd_hm, max_hm, carotenoid_biosynthesis_all, carotenoid_signaling ), function(x) x[[1]][, geneids]))
+carot_lines_ids <- df_res$root_48h_0h[geneid %in% carot_lines_ids][order(orthogroup), geneid]
+
+carot_lines <- hm_data2(gene_ids = carot_lines_ids)
+
+carot_lines[c(1,3)] <- lapply(carot_lines[c(1,3)], add_labels_to_factor, column_name='gfam',
+                              labels=c('XDH', 'TGA', 'PYL', 'SRKE2',
+                                       'PP2C', 'ABAH', 'CCD4', 'PP2Cb',
+                                       'ABI5', 'NCED', 'PSY', 'IAA',
+                                       'LYC', 'CCD1a', 'CCD1b', 'ZEP', 
+                                       'BCH1', 'SMxL', 'CCD8', 'MAX2', 'CHLH'))
+                              
+fuckt <- data.table(gene=carot_lines[[1]][order(gfam), geneids], tab=carot_lines[[1]][, gfam], gfam=c(rep('XDH', times=6), rep('TGA', times=3), rep("PYL", times=5), c('SRKE2', 'SRKE2'), rep('PP2C',times=3), rep('ABAH', times=3), 'CCD4', c('PP2Cb','PP2Cb'), c('ABI', 'ABI5'),  c('NCED', 'NCED'), c('PSY', 'PSY'), c('IAA', 'IAA'), 'LYC', 'CCD1a', 'CCD1b', 'ZEP', 'BCH1', 'SMxL', 'CCD8', 'MAX2', 'CHLH'))
+
+gfam_carot <- levels(carot_lines[[1]][, gfam] )
+colors_carot <- c25[1:length(gfam_carot)]
+
+carot_lines_pl <- plot_pathway_counts(hm_dat = carot_lines, ncbi = T, tis = 'root', log_scale = T, col = colors_carot, gfam_lev_col = gfam_carot)
+carot_lines_pl_l <- plot_pathway_counts(hm_dat = carot_lines, ncbi = T, tis = 'leaf', log_scale = T, col = colors_carot, gfam_lev_col = gfam_carot)
+
+pdf(file = 'plot_counts_carot_thin.pdf', width = 4, height = 15)
+carot_lines_pl/carot_lines_pl_l+patchwork::plot_layout(heights = c(2,1))
+dev.off()
+
+```
+
+
+
+# Ethylene (cytokine) Pathway
+
+While searching for members of the ethylene signaling & biosynthetic pathway, we discovered an enzyme involved in the last step of the  biosynthesis of ethylene. This enzyme catalyzes the oxydation of aminociclopropane carboxylate (ACO) into ethylene with CO2, water, and cianide as byproducts (Jolien Pattyn, John Vaughan‐Hirsch, and Bram Van de Poel, The New Phyt., 2021). This ACO was the only gene identified in the pathway, as the synthesis of the precursor s-adenosyl methionine (SAM) is carefully regulated as well by other processes. Despite this, its orthogroup (OG_617) contained 4 members, of which 2 were differentially expressed on top of the original annotated AOC. In Arabidopsis different members of OG_617 are tissue specific (DOI: 10.14348/molcells.2018.0092). 
+Additionally, the Constitutive Triple Response (CTR1) ortholog was not placed within the signaling pathwway of KEGG ethylene. We observed that the CTR1 gene appeared within the GO term cluster 1 but was not annotated in KEG as part of the pathway. Using the orthology assignemnt (OG 201) we discovered other DEG members of the enhanced disease resistance (EDR) that may be involved in callose deposition as its found in Arabidopsis (https://doi.org/10.1093/jxb/erab423)
+NPR1 orthologes (OG 1365) in barley are seem to be a requirement for Rhizobioum radiobacter colonization (10.1111/1462-2920.15356).  
+
+```{r}
+# Ethylene biosynthesis
+
+eth_biosynthesis <- hm_data2(df_res$root_48h_0h[orthogroup %in% rtcl1_kp[grep('cysteine', tolower(category)), orthogroup], geneid], tissue = 'root')
+df_res$root_48h_0h[geneid %in% eth_biosynthesis[[c(1)]][, geneids],.(orthogroup, annot, annot2)][order(orthogroup)]
+eth_biosynthesis[c(1,3)] <- lapply(eth_biosynthesis[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('ACO'))
+
+# Signaling
+df_res$root_48h_0h[orthogroup %in% c(rtcl1pt[grep(' ethylene', tolower(cr)), Orthogroup.ID], '201')][order(orthogroup)]
+
+
+eth_signaling <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(rtcl1pt[grep(' ethylene', tolower(cr)), Orthogroup.ID], '201')][order(orthogroup),geneid], tissue = 'root')
+#show protens and anntations to define fam name
+df_res$root_48h_0h[geneid %in% eth_signaling[[c(1)]][, geneids],.(orthogroup, annot, annot2)][order(orthogroup)]
+
+eth_signaling[c(1,3)] <- lapply(eth_signaling[c(1,3)], add_labels_to_factor, column_name = 'gfam', labels =c('ERF', 'CTR1/EDR', 'RAP2', 'EIN') )
+
+#eth_aco <- hm_data(og617[6:9], gfam = "ACO")
+
+og617 <- names(sequence_list['og_617'][[1]])
+
+og617[1:5] <- substring(og617[1:5], first = 18)
+og617[6:9] <- substring(og617[6:9], first = 16)
+
+og617[6:9] <- cr[lookup %in% og617[6:9], crv3.2]
+
+df_res$root_48h_0h[geneid %in% og617[6:9]]
+
+#draw heatmap
+ethylene_pathway_hm <- hm_l2(list(eth_biosynthesis, eth_signaling), steps = c('ETH SYN', 'ETH SIG'), ncbi = F, tissue = 'both')
+
+ethylene_root_pathway_hm <- hm_l2(list(eth_biosynthesis, eth_signaling), steps = , ncbi = T, tissue = 'root')
+
+ethylene_lines <- plot_pathway_counts(hm_dat =ethylene_pathway_hm)
+
+#arabidopsis RBBH 
+aranames_eth <- cr[match(ethylene_pathway_hm[[3]]$geneids, crv3.2),.(ncbi, araport2)][, araport2]
+aranames_eth[is.na(aranames_eth)] <- ''
+
+
+pdf(file = 'ethylene_pathway_hm.pdf', width = 6, height = 12)
+ethylene_pathway_hm[[1]]+
+  rowAnnotation(labels = anno_text(ethylene_pathway_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(ethylene_pathway_hm[[4]]))))+
+  rowAnnotation(labels   = anno_text(aranames_eth, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_eth))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+#ROOT ONLY
+
+pdf(file = 'ethylene__root_pathway_hm.pdf', width = 4, height = 8)
+ethylene_root_pathway_hm[[1]]+
+  rowAnnotation(labels = anno_text(ethylene_root_pathway_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(ethylene_root_pathway_hm[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+ethylene_lines_ids <- unlist(lapply(list(eth_biosynthesis, eth_signaling), function(x) x[[1]][, geneid]))
+ethylene_lines_hm <- hm_data2(gene_ids = ethylene_lines_ids, tissue = 'root')
+
+ethylene_lines_hm[c(1,3)] <- lapply(ethylene_lines_hm[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('ERF', 'CTR/EDR1', 'RAP2', "ACO", 'EIN'))
+
+gfam_eth <- levels(ethylene_lines_hm[[1]][, gfam] )
+colors_eth <- c25[1:length(gfam_eth)]
+col_eth <- list(gfam_eth, colors_eth)
+
+eth_path_lines <- plot_pathway_counts(ethylene_lines_hm, col = colors_eth, gfam_lev_col = gfam_eth)
+eth_path_lines_l <- plot_pathway_counts(ethylene_lines_hm, tis = 'leaf', col = colors_eth, gfam_lev_col = gfam_eth)
+
+pdf(file = 'plot_counts_eth.pdf', width = 6, height = 15)
+eth_path_lines/eth_path_lines_l+patchwork::plot_layout(heights = c(2,1))
+dev.off()
+
+pdf(file = 'plot_counts_eth_thin.pdf', width = 4, height = 15)
+eth_path_lines/eth_path_lines_l+patchwork::plot_layout(heights = c(2,1))
+dev.off()
+
+```
+
+#Cytokine??
+```{r}
+# cytokine
+# OG 269	Tc02v2_t023440.1 Putative Two-component response regulator ORR26
+
+
+```
+
+
+# IAA pathway / Tryptophan
+
+using kegg, all genes involved in melatonin (MT) biosynthesis are discovered to be uptregulated. This incudes the DDC (tryptophan de carboxylase, TDC) K01593 og_407, K22450 SNAT 9182, K13066 (COMT) 0g_126, 
+
+Gene family OG 96 encode Pathogenesis related proteins (PR-1) which although induced after powdery mildew and having protien expression associated with ppathogen resistance, they seem to be involved in the ABA (strikeout - Auxin) response and lateral root formations. Highly induced by Auxin (10.1371/journal.pgen.1008044).
+The XTH family protein (OG 51) interacts with the ARF to induce cold response in arabidopsis (https://doi.org/10.4161/psb.29109). 
+
+```{r}
+
+#define the singaling componsnet of the pathway, expand using Orthogroups
+
+ABA_signal_transduc_all <- rtcl1_kp[grep('transduction', tolower(category)), ]
+IAA_signal <- NULL
+IAA_signal <- rbind(IAA_signal, ABA_signal_transduc_all[grep('indole', tolower(cr)), ])
+IAA_signal <- rbind(IAA_signal, ABA_signal_transduc_all[grep('auxin', tolower(cr)), ])
+IAA_signal <- rbind(IAA_signal, ABA_signal_transduc_all[grep('inhibitor', tolower(cr)), ])
+#IAA_signal <- rbind(IAA_signal, ABA_signal_transduc_all[grep('pathogenesis', tolower(cr)), ])
+df_res$root_48h_0h[orthogroup %in% c(IAA_signal$orthogroup, '488', '4406', '640', "51")][order(orthogroup), .(orthogroup, annot, araport2, annot2)]
+
+
+
+
+# IAA_PIN_hm <- hm_data(rtcl1pt[grep('efflux', tolower(cr)),Gene.ID], gfam = 'PIN') #  Auxin efflux protein (PIN)
+
+IAA_signal_hm <- hm_data(gene_ids = c(IAA_signaling$Rtl2f$geneids, rtcl1pt[grep('efflux', tolower(cr)),Gene.ID]))
+
+IAA_signal_hm <- hm_data(gene_ids = c(IAA_signaling$Rtl2f$geneids, rtcl1pt[grep('efflux', tolower(cr)),Gene.ID]))
+
+IAA_signal_hm <- hm_data2(gene_ids = df_res$root_48h_0h[orthogroup %in% c(IAA_signal$orthogroup, '488', '4406', '640', '51'), ][order(orthogroup), geneid], tissue = 'root')
+
+IAA_signal_hm[c(1,3)] <- lapply(IAA_signal_hm[c(1,3)], add_labels_to_factor, column_name = 'gfam', labels = c('XTH', 'AUX/IAA', 'GH3', 'AEC','PINL7', 'TIR', 'ARF', 'PINL6'))
+
+#IAA_signal_hm[c(1,3)] <- lapply(IAA_signal_hm[c(1,3)], add_labels_to_factor, column_name = 'gfam', labels = c('ARP', 'GH3', 'AEC', 'TIR', 'ARF'))
+
+#df_res$root_48h_0h[geneid %in% IAA_biosynthesis[[c(1)]][,geneids],.(orthogroup, annot,annot2)][order(orthogroup), ]
+
+
+#IAA biosyntehsus 
+
+IAA_biosynthesis <- hm_data2(df_res$root_48h_0h[orthogroup %in% rtcl1_kp[grep('tryptophan', tolower(category)), orthogroup], geneid], tissue = 'root')
+df_res$root_48h_0h[geneid %in% rownames(IAA_biosynthesis$Rtpadj),][order(orthogroup),.(orthogroup, annot, annot2)]
+
+
+IAA_biosynthesis[c(1, 3)] <- lapply(IAA_biosynthesis[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('OMT', 'CAT', 'CYC', 'DAO'))
+
+# plot 
+
+iaa_hm <- hm_l2( list(IAA_biosynthesis, IAA_signal_hm), steps = T, ncbi = T)
+
+#arabidopsis RBBH 
+aranames_iaa <- cr[match(iaa_hm[[3]]$geneids, crv3.2),.(ncbi, araport2)][, araport2]
+aranames_iaa[is.na(aranames_iaa)] <- ''
+
+#print out pdf of heatmap
+
+pdf(file = 'iaa_pathway_hm.pdf', width = 8, height = 14)
+iaa_hm[[1]]+
+  rowAnnotation(labels = anno_text(iaa_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(iaa_hm[[4]]))))+
+  rowAnnotation(labels   = anno_text(aranames_iaa, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_iaa))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+```
+
+# Tryptophan
+IAA is synthesized via 4 mahyor tryptophan dedpendent pathaways (doi: 10.1080/15592324.2015.1048052): 
+
+Indole -3- acetamide (IAM) CAN BE CONVERTED TO INDOLE-3-ACETIC ACID by the activity of Indole-3-acetamide amidohydrolase (amidase) (K01426) in rabbit liver
+
+indolde -3- pyruvic acid (IPA): try->ipa->iaa; first step reqires a TAA (OG_1905), which is DE, while step 2 requires YUC (monooxigenase), which was not DE
+
+tryptamine (TRA): oxidation of tryptophan can be carreid out by aromatic-L-amino-acid/L-tryptophan decarboxylase (DDC/TDC) in some plants (Catharanthus roseus)
+
+indole 3 acetaldoxime (IAD)
+
+IAA is tryp independently synthesized via:
+indole -3- acetonitrile
+
+Strictosidine synthase: 1058 and 218
+
+Melatonin:
+Tryptophan -> 5-hydroxytrytophan -> serotonin -> nacetylserotonin -> melatonin
+tryptophan ->(og-407) tryptamine -> serotonin -> 
+Tryp _og_407 -> 5htp
+5htp _og_63/og_9182 -> serotonin
+Serotonin 
+
+```{r}
+# This incudes the DDC K01593 og_407 (AAS, aromatic aldehyde synthase), K22450 SNAT og_9182, K13066 (COMT) 0g_126, 
+
+# New includes the og 63 reticuline omt has a arath ortho that does catalize te step from serotonin to nacetyl serotonin
+
+# AT2G20340 is an AAS and orthologous to the tomarto TDC (Tryptophan decarb), (10.3389/fpls.2023.1142753)
+# AT4G28680 is a tyrosine decarb orthologous as well (10.3389/fpls.2023.1142753) both are OG_407
+# OG 407 makes tryptamine from tryptophan
+# OG 9182 AT1G26220	Catalyzes formation of N-acetylserotonin (NAS) from serotonin. Involved in the GA-related flowering pathway.
+# OG	Encodes a cytosolic N-acetylserotonin O-methyltransferase that can convert N-acetylserotonin to melatonin and serotonin to 5-methoxytryptamine in the process of melatonin synthesis. It does not have caffeic acid O- methyltransferase activity.
+
+
+
+
+mt_og <- df_res$root_48h_0h[orthogroup %in% c(407, 9182, 126), geneid]
+
+mt_hmd <- hm_data2(gene_ids = mt_og, tissue = 'root')
+
+mt_hmd[c(1,3)] <- lapply(mt_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('COMT', 'TDC', 'SNAT'), level_order=c('TDC', "SNAT", "COMT"))
+
+#strictosidine is formed from trytamine and socoligol og : 218 1058
+stric_og <- df_res$root_48h_0h[orthogroup %in% c(218, 1058), geneid]
+stric_hmd <- hm_data2(gene_ids = stric_og, tissue = 'root')
+stric_hmd[c(1,3)] <- lapply(stric_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('SS1', 'SS2') , level_order=c('SS1', 'SS2'))
+ipa_hmd <- df_res$root_48h_0h[orthogroup %in% c(1905), geneid]
+ipa_hmd <- hm_data2(ipa_hmd, tissue = 'root')
+ipa_hmd[c(1,3)] <- lapply(ipa_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels='TAA', level_order='TAA')
+
+tryp_hm <- hm_l2(list(IAA_biosynthesis, mt_hmd, IAA_signal_hm, ipa_hmd, stric_hmd), steps = c('IAA Biosyn', 'MT Biosyn', 'IAA Sig', 'IPA', 'STR'), ncbi = T)
+
+pdf(file = 'tryp_pathway_hm.pdf', width = 8, height = 12)
+tryp_hm[[1]]+
+  rowAnnotation(labels = anno_text(tryp_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(tryp_hm[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+#count of lines
+
+tryp_lines_id <- unlist(lapply(list(IAA_biosynthesis, mt_hmd, IAA_signal_hm, ipa_hmd, stric_hmd), function(x) x[[1]][, geneid]))
+tryp_lines_hm <- hm_data2(gene_ids = tryp_lines_id, tissue = 'root')
+
+tryp_lines_hm[c(1,3)] <- lapply(tryp_lines_hm[c(1,3)], add_labels_to_factor, column_name='gfam', labels = c('XTH', 'ASMT', 'AUX/IAA', 'COMT', 'SSL10', 'GH3', 'DDC/AAS', 'AEC', 'PIL7', 'AFB', 'ARF', 'SSL5', 'CAT', 'TAA', 'CYC', 'DAO', 'PIL6', 'SNAT'))
+
+
+gfam_tryp <- levels(tryp_lines_hm[[1]][, gfam] )
+colors_trp <- c25[1:length(gfam_tryp)]
+col_tryp <- list(gfam_tryp, colors_trp)
+
+tryp_lines_pl <- plot_pathway_counts(hm_dat = tryp_lines_hm, ncbi = T, col = colors_trp, gfam_lev_col = gfam_tryp)
+tryp_lines_plf <- plot_pathway_counts(hm_dat = tryp_lines_hm, ncbi = T, tis = 'leaf', col = colors_trp, gfam_lev_col = gfam_tryp)
+
+
+
+pdf(file = 'plot_counts_tryp2.pdf', width = 6, height = 15)
+tryp_lines_pl/tryp_lines_plf+patchwork::plot_layout(heights = c(3,1))
+dev.off()
+
+
+pdf(file = 'plot_counts_tryp2_thin.pdf', width = 4, height = 15)
+tryp_lines_pl/tryp_lines_plf+patchwork::plot_layout(heights = c(3,1))
+dev.off()
+
+
+#trypophan for illustrator
+
+tryp_hm_illus <- hm_l2(list(IAA_biosynthesis, mt_hmd, ipa_hmd, stric_hmd), steps = c('IAA', 'MT', 'IPA', 'SS'), ncbi = T, tissue = 'root')
+
+pdf(file = 'tryp_root_pathway_hm.pdf', width = 4, height = 4)
+tryp_hm_illus[[1]]+
+  rowAnnotation(labels = anno_text(tryp_hm_illus[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(tryp_hm_illus[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+pdf(file = 'tryp_pathway_hm.pdf', width = 5, height = 12)
+tryp_hm[[1]]+
+  rowAnnotation(labels = anno_text(tryp_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(tryp_hm[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+```
+
+#ABA proof (Highly induceble PP2C gene)
+
+```{r}
+
+histidineK <- df_res$root_48h_0h[grep('histidine', tolower(annot)), geneid]
+histidineK <- df_res$root_48h_0h[grep('snf1', tolower(annot)), geneid]
+hipp2c_id <- df_res$root_48h_0h[grep('highly', tolower(annot)), geneid]
+lea_id <- df_res$root_48h_0h[grep('late embryogenesis abundant', tolower(annot))][sig=='FDR<0.05' & log2FoldChange>0, ][1,geneid]
+
+aba_proof <- hm_data(c(hipp2c_id, lea_id))
+aba_proof[c(1,3)] <- lapply(aba_proof[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('Highly ABA-Induced PP2C', 'LEA 1'), level_order=c('Highly ABA-Induced PP2C', 'LEA 1'))
+
+aba_proof_hm <- hm_l2(list(aba_proof), onlysig = T, ncbi = T, tissue = 'both', steps = F)
+
+pdf(file = 'aba_proof.pdf', width = 5, height = 2)
+aba_proof_hm[[1]]+
+  rowAnnotation(labels = anno_text(aba_proof_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(aba_proof_hm[[4]]))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+```
+
+
+# Root Cluster 2 BP
+
+A RING/U-box and TRAF-like domains containing protein is a phosphoglucan phosphatase from og 8884 present in the same og as a Arabidopsis protein (Like SEX four2) involved in Root dev, moduating ROS (10.1038/srep28683)
+Within the GST there are PARB in OG 195, which is a auxin regulated GST (DOI: 10.1073/pnas.89.1.56)
+
+```{r}
+
+rtcl2_kp <- kegg_html(html_file = 'kegg_hacking/Rtcl2BP_kp.html') #only 55 out of 155 were mapped
+
+df_res$root_48h_0h[ orthogroup %in% df_res$root_48h_0h[geneid %in% rtcl2, orthogroup],][!is.na(orthogroup)][order(orthogroup), .(orthogroup, annot, araport, annot2)]
+
+peroxide_hd <- hm_data2(gene_ids = df_res$root_48h_0h[orthogroup %in% c(10, 256, 870, 1707, 2244, 1455, 8286), geneid])
+peroxide_hd[c(1,3)] <- lapply(peroxide_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('Lignin-forming\nPeroxidases', 'PER2', 'AscP', 'CAT', 'PRXDX', 'PER3', 'PRXDX-2f'))
+
+gst_hd <- hm_data2(gene_ids = df_res$root_48h_0h[orthogroup %in% c(30, 195), geneid])
+gst_hd[c(1,3)] <- lapply(gst_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('GST', 'GST-PARB'))
+
+chitin_hd <- hm_data2(gene_ids = df_res$root_48h_0h[orthogroup %in% c(427, 431, 487, 547, 1275, 2982), geneid])
+chitin_hd[c(1,3)] <- lapply(chitin_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('EP3', 'Hevamine', 'CHT1', 'GHCH\nS-RLK34', 'CHT2', 'CTL1'))
+
+cho_hd <- hm_data2(gene_ids = df_res$root_48h_0h[orthogroup %in% c(1125, 1412, 2305, 3497, 6286, 6414, 8559, 7993, 8884), geneid])
+cho_hd[c(1,3)] <- lapply(cho_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('β-aml','⍺-aml', 'AGB', 'AGWDK', 'DSP4', 'DPE1', 'ISOAM', 'LSEX4'))
+
+cat_hm <- hm_l2(lis = list(peroxide_hd, gst_hd, chitin_hd, cho_hd), steps = c('Peroxide', 'Glutathione', 'Chitin', 'Carbohydrate'), ncbi = T) #NCBI is giving some NA so we will make ad hoc labels
+
+cat_hm <- hm_l4(lis = list(peroxide_hd, gst_hd, chitin_hd, cho_hd), steps = c('Peroxide', 'Glutathione', 'Chitin', 'Carbohydrate')) #NCBI is giving some NA so we will make ad hoc labels
+
+ncbi_cat <- substring(cr[match(cat_hm[[4]], crv3.2), ncbi], first = 5, last = 18)
+ncbi_cat[is.na(ncbi_cat)] <- cat_hm[[4]][is.na(ncbi_cat)]
+
+aranames_cat <- cr[match(cat_hm[[4]], crv3.2), araport2]
+aranames_cat[is.na(aranames_cat)] <- ''
+
+pdf(file = 'catabolism_pathway_hm.pdf', width = 8, height = 18)
+cat_hm[[1]]+
+  rowAnnotation(labels = anno_text(ncbi_cat, which = "row"), 
+                width = max(grobWidth(textGrob(ncbi_cat))))+
+  rowAnnotation(labels   = anno_text(aranames_cat, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_cat))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+pdf(file = 'catabolism_pathway_hm_thin.pdf', width = 5, height = 18)
+cat_hm[[1]]
+
+#+  rowAnnotation(labels   = anno_text(aranames_cat, which = "row"), 
+ #               width = max(grobWidth(textGrob(aranames_cat))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+cat_ids <- unlist(lapply(list(peroxide_hd, gst_hd, chitin_hd, cho_hd), function(x) x[[1]][, geneid]))
+cat_gfam <- unlist(lapply(list(peroxide_hd, gst_hd, chitin_hd, cho_hd), function(x) x[[1]][, gfam]))
+
+cat_lines_hd <- hm_data2(gene_ids = cat_ids, tissue = 'leaf')
+cat_lines_hd <- hm_data2(gene_ids = cat_ids, tissue = 'root')
+cat_lines_hd[c(1,3)] <- lapply(X = cat_lines_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels= as.character(levels(cat_gfam)))
+
+gfam_cat <- levels(cat_lines_hd[[1]][, gfam] )
+colors_cat <- c25[1:length(gfam_cat)]
+
+cat_lines <- plot_pathway_counts(hm_dat = cat_lines_hd, ncbi = T, tis = 'root', log_scale = T, classif = F, col = colors_cat, gfam_lev_col = gfam_cat)
+cat_lines_l <- plot_pathway_counts(hm_dat = cat_lines_hd, ncbi = T, tis = 'leaf', log_scale = T, classif = F, col = colors_cat, gfam_lev_col = gfam_cat)
+
+cat_lines+cat_lines_l+patchwork::plot_layout(ncol = 1, heights = c(3,1))
+
+pdf(file = 'catabolism_lines.pdf', width = 6, height = 30)
+
+cat_lines+cat_lines_l+patchwork::plot_layout(ncol = 1, heights = c(3,1))
+
+dev.off()
+
+
+
+
+```
+
+#test cluster 6 ion transport
+
+Mid complementing Activity (MCA) are thought to be Ca transporters and interact with EF hand motifs (doi: 10.1105/tpc.16.00878). 
+In our custer, we find a EP1 family protein (OG 849) together with other mannose receptor like kinases. Within this group there is a manoe biding lectin that together with MYB4 and MAN3 (mannose synthase) regulates Cadmium tolerance in arabidopsis (10.1371/journal.pgen.1009636)
+
+```{r}
+rtcl6 <- unlist(ORA_root_geno2[pathway %in% rnkRtBP[cluster==6, GO_ID][[1]], overlapGenes])
+df_res$root_48h_0h[ orthogroup %in% df_res$root_48h_0h[geneid %in% rtcl6, orthogroup],][!is.na(orthogroup)][order(orthogroup), .(orthogroup, annot, araport, annot2)]
+
+nitrogen_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(20, 881), geneid])
+nitrogen_hd[c(1,3)] <- lapply(nitrogen_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('NRT1/\nPTR 1', 'NRT1/\nPTR 2'))
+
+phosphate_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(199, 457), geneid])
+phosphate_hd[c(1,3)] <- lapply(phosphate_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('IPT', 'PHO1'))
+
+calcium_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(142, 1358, 1530, 4630, 3384), geneid])
+calcium_hd[c(1,3)] <- lapply(calcium_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('ACA1', 'SERCA', 'NCX\nEFCaBP', 'GDT1', 'MCA'))
+
+sulphate_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(302), geneid])
+sulphate_hd[c(1,3)] <- lapply(sulphate_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('SULTR3'))
+
+aquaporin_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(209, 213, 2031), geneid])
+aquaporin_hd[c(1,3)] <- lapply(aquaporin_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('TIP', 'PIP', 'NIP'))
+
+cax_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(1980, 2335), geneid])
+cax_hd[c(1,3)] <- lapply(cax_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('CAX 1', 'CAX 2'))
+
+ion_receptor_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(212, 2188, 849), geneid])
+ion_receptor_hd[c(1,3)] <- lapply(ion_receptor_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('CNGC', 'LRRLK', 'MNB1'))
+
+annexin_hd <- hm_data2(df_res$root_48h_0h[orthogroup %in% c(575, 9254), geneid])
+annexin_hd[c(1,3)] <- lapply(annexin_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('ANX 1', 'ANX 2'))
+
+
+ion_tr_hm <- hm_l2(lis = list(nitrogen_hd, phosphate_hd, calcium_hd, sulphate_hd, aquaporin_hd, cax_hd, ion_receptor_hd, annexin_hd), 
+                   steps = c("Nitrogen", 'Phosphate', 'Calcium', 'Sulphate', 'Aquaporin', 'CAX', 'Receptor', 'Annexin'), ncbi = T, tissue = 'both')
+
+ion_tr_hm <- hm_l4(lis = list(nitrogen_hd, phosphate_hd, calcium_hd, sulphate_hd, aquaporin_hd, cax_hd, ion_receptor_hd, annexin_hd), 
+                   steps = c("Nitrogen", 'Phosphate', 'Calcium', 'Sulphate', 'Aquaporin', 'CAX', 'Receptor', 'Annexin'))
+
+ncbi_ion <- substring(cr[match(ion_tr_hm[[4]], crv3.2), ncbi], first = 5, last = 18)
+ncbi_ion[is.na(ncbi_ion)] <- ion_tr_hm[[4]][is.na(ncbi_ion)]
+
+aranames_ion <- cr[match(ion_tr_hm[[3]][,geneid], crv3.2), araport2]
+aranames_ion[is.na(aranames_ion)] <- ''
+
+pdf(file = 'ion_tr_hm.pdf', width = 8, height = 18)
+ion_tr_hm[[1]]+
+  rowAnnotation(labels = anno_text(ncbi_ion, which = "row"), 
+                width = max(grobWidth(textGrob(ncbi_ion))))+
+  rowAnnotation(labels   = anno_text(aranames_ion, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_ion))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+pdf(file = 'ion_tr_hm2.pdf', width = 5, height = 14)
+ion_tr_hm[[1]]
+ # rowAnnotation(labels = anno_text(ncbi_ion, which = "row"), 
+  #              width = max(grobWidth(textGrob(ncbi_ion))))+
+#  rowAnnotation(labels   = anno_text(aranames_ion, which = "row"), 
+    #            width = max(grobWidth(textGrob(aranames_ion))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+
+apply(data.frame(cr[match(rtcl6, crv3.2), .(n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/')
+
+```
+
+# Root cluster 3
+
+```{r}
+rtcl3_kp <- kegg_html(html_file = 'kegg_hacking/')
+```
+
+
+```{r}
+hmlf <- Heatmap(matrix = as.matrix(rtcl1_hmd[[1]][,1:3]), name = "Log2FoldChange",cluster_columns = F, cluster_rows = F, row_labels = apply(data.frame(cr[match(rtcl1_smoking, crv3.2), .(crv3.2, n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/'),
+                col=colorRamp2(c(min(rtcl1_hmd[[1]][,1:3], na.rm = T), 0, max(rtcl1_hmd[[1]][,1:3], na.rm = T)), colors = c("red", "white", "green")),
+                #column_labels = c('RtLA48h/0h', 'RtHA48Hh/0h', 'BOTH'),
+                row_names_gp = gpar(fontsize=10),
+                #left_annotation = row_gfam_ha,
+                #heatmap_legend_param = ,
+                border = T,
+                column_gap = unit(0, "mm"),
+                #column_split = colsplt,
+                #left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = testlf$Orthogroup.ID, term = substring(aranames$cr, 18), max_words = 4, exclude_words = c('protein', 'proteins', 'family', 'unknown', 'tair', 'descriptions'), side = 'left', word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+                row_split = rtcl1pt[match(rtcl1_smoking, rtcl1pt$Gene.ID), Orthogroup.ID],
+                cell_fun = function(j, i, x, y, width, height, fill) {
+                  if(is.na(as.matrix(rtcl1_hmd[[2]])[i, j]) ){
+                    grid.text(sprintf("%s", ''), x, y, gp = gpar(fontsize = 12))
+                  }else if(as.matrix(rtcl1_hmd[[2]])[i, j] <0.001 ){
+                    grid.text(sprintf("%s", '***'), x, y, gp = gpar(fontsize = 12))
+                  }else if(as.matrix(rtcl1_hmd[[2]])[i, j] <0.01) {
+                    grid.text(sprintf("%s", '**'), x, y, gp = gpar(fontsize = 12))
+                  }else if(as.matrix(rtcl1_hmd[[2]])[i, j] <0.05) {
+                    grid.text(sprintf("%s", '*'), x, y, gp = gpar(fontsize = 12 ))
+                  }
+                }
+  )
+
+pdf(file = 'rtcl1_smoking.pdf', width = 10, height = 15)
+hmlf
+dev.off() 
+
+apply(data.frame(cr[match(rtcl1_smoking, crv3.2), .(crv3.2, n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/')
+
+```
+
+# PATHWAY 4 STRICTOSIDINE - FLAVONES
+
+# PATHWAY 5 ETHYLENE - ERF - CRT - RAN1
+```{r}
+
+'Tc05cons_g005390' # EID / DREB ortholog
+
+
+ERFids <- cr[ crv3.2 %in% rtcl1, ][grep('ethylene-', tolower(cr)), crv3.2]
+```
+
+
+#test cluster 2 catabolism
+
+```{r}
+rtcl2 <- unlist(ORA_root_geno2[pathway %in% rnkRtBP[cluster==2, GO_ID][[1]], overlapGenes])
+c2_hmdata <- hm_data(gene_ids = rtcl2, gfam = 'catabolic process')
+hm_l2(list(c2_hmdata))
+
+apply(data.frame(cr[match(rtcl2, crv3.2), .(n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/')
+
+```
+
+
+
+The desphosphorilation cluster shows many pp2c annotated genes. Two of them are incuded in the carotenoid signaling cluster iddentified before. The rest belong to different Orthogroups. How does those relate t carotenoid signaling is et to be determined. They could be related to other processes. 
+```{r}
+rtcl7 <- unlist(ORA_root_geno2[pathway %in% rnkRtBP[cluster==7, GO_ID][[1]], overlapGenes])
+rtcl7_b <- rtcl7[!(rtcl7 %in% rtcl2)]
+df_res$root_48h_0h[ orthogroup %in% df_res$root_48h_0h[geneid %in% rtcl7_b, orthogroup],][!is.na(orthogroup)][order(orthogroup), .(orthogroup, annot, araport, annot2)]
+
+dephosph_hd <- hm_data(gene_ids =df_res$root_48h_0h[orthogroup %in% df_res$root_48h_0h[ orthogroup %in% df_res$root_48h_0h[geneid %in% rtcl7_b, orthogroup],][!is.na(orthogroup)][order(orthogroup), orthogroup], geneid])
+
+dephosph_hd[c(1,3)] <- lapply(dephosph_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('ADP', 'PP2C532', 'TOPP', 'HIA3', 'AVRPM\nPP2C', 'WIN2', 'PP2C', 'PP2CG1', 'AP2C1', 'ABI', 'PLL', 'PFA-DSP2', 'HADL', 'DSPP', 'MAPK1', 'PHS1', 'SEC', 'TAP38', 'POL', 'LSF2'))
+
+
+# 284 = ADP
+# 321 = PP2C 532
+# 458 = TOPP type one pp
+# 624 = HIA3 (highly induced ABA gene 3)
+# 687 = PP2C AVRPM induced
+# 735 = WIN2 (HopW1 interacting)
+# 858 - PP2C ?
+# 876 = PP2C G1 (abscicic acid salt tolerance)
+# 936 AP2C1 clade B of PP2C acts as a MAPK
+# 1019 ABI (ABA insensitive)
+# 1258 poltergeist 1 like (PLL)
+# 1272 PFA-DSP2 (plant and fungi atypical dual specificity phosphatase 2)
+# 1854 HAD (haloacid deyrogenase like)
+# 2116 possible cap1 interacting protein (CIP) DSPP
+# 2516 MAPK1 
+# 3559 Propyzamide hypersensitive (PHS1)
+# 4647 Secret Agent SEC (Protein O-GlcNAc transferase. Together with SPY functions to competitively regulate RGA1 (At2g01570).)
+# 8277 TAP38
+# 9350 POLTERGEIST (POL)
+# 8884 LSF2
+
+dephosph_hm <- hm_l2(lis = list(dephosph_hd))
+
+ncbi_deph <- substring(cr[match(dephosph_hm[[4]], crv3.2), ncbi], first = 5, last = 18)
+ncbi_deph[is.na(ncbi_deph)] <- dephosph_hm[[4]][is.na(ncbi_deph)]
+
+aranames_deph <- cr[match(dephosph_hm[[4]], crv3.2), araport2]
+aranames_deph[is.na(aranames_deph)] <- ''
+
+pdf(file = 'dephosphorilation_hm.pdf', width = 8, height = 10)
+dephosph_hm[[1]]+
+  rowAnnotation(labels = anno_text(ncbi_deph, which = "row"), 
+                width = max(grobWidth(textGrob(ncbi_deph))))+
+  rowAnnotation(labels   = anno_text(aranames_deph, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_deph))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+#apply(data.frame(cr[match(rtcl7, crv3.2), .(n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/')
+
+```
+
+# metal transporters
+
+```{r}
+hma_ids <- c('Tc01v2_t005580',
+'Tc01v2_t018910',
+'Tc02v2_t000500',
+'Tc02v2_t011530',
+'Tc03v2_t023170', 
+'Tc09v2_t019080',
+'Tc09v2_t015490',
+'Tc09v2_t015500')
+
+hma_tc <- unique(cr[unlist(lapply(hma_ids, grep, lookup)),crv3.2])
+
+hma_hd <- hm_data2(gene_ids = unique(cr[unlist(lapply(hma_ids, grep, lookup)),crv3.2]))
+hma_hd <- lapply(hma_hd, add_labels_to_factor, column_name='gfam', labels=c('HMA'))
+
+# ZIP
+zip_ids <- readLines('zachs_irt')
+zip_ids <- zip_ids[2:length(zip_ids)]
+
+zip_ids <- unlist(lapply(zip_ids,  substr, 1, 16))
+zip_ids <- unique(zip_ids)
+
+zip_hd <- hm_data2(gene_ids = zip_ids)
+zip_hd <- lapply(zip_hd, add_labels_to_factor, column_name='gfam', labels='ZIP') 
+
+# VIT
+vit_ids <- df_res$root_48h_0h[grep('vacuolar iron', tolower(annot)),.(geneid, annot, log2FoldChange, padj)][,geneid]
+vit_hd <- hm_data2(gene_ids = vit_ids)
+vit_hd[c(1,2)] <- lapply(vit_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels=c('VIT1', 'VIT2'))
+
+
+# PCR
+pcr_ids <- df_res$root_48h_0h[grep('plant cadmium', tolower(annot)),.(geneid, annot, log2FoldChange, padj)][,geneid]
+pcr_hd <- hm_data2(gene_ids = pcr_ids)
+pcr_hd[c(1,2)] <- lapply(pcr_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('PCR', 'PCR2'))
+pcr_hd[c(3,4)] <- lapply(pcr_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('PCR'))
+
+#NRAMP
+nramp_ids <- df_res$root_48h_0h[grep('nramp', tolower(annot)),.(geneid, annot, log2FoldChange, padj)][,geneid]
+nramp_hd <- hm_data2(gene_ids = nramp_ids)
+nramp_hd[c(1,2)] <- lapply(nramp_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels='NRAMP')
+
+# Heavy metal associated
+hmp_ids <- df_res$root_48h_0h[grep('heavy metal transport', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+hmp_hd <- hm_data2(gene_ids = hmp_ids)
+hmp_hd[c(1,2)] <- lapply(hmp_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels=c('HMP1', 'HMP2'))
+
+# MATE
+mate_ids <- df_res$root_48h_0h[grep('protein detoxification', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+mate_hd <- hm_data2(gene_ids = mate_ids)
+mate_hd[c(1,3)] <- lapply(mate_hd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('MATE1', 'MATE2', 'MATE3', 'MATE4', 'MATE5', 'MATE6', 'MATE7', 'MATE8'))
+mate_hd <- lapply(mate_hd, add_labels_to_factor, column_name='gfam', labels=c('MATE1', 'MATE2', 'MATE3', 'MATE4', 'MATE5', 'MATE6', 'MATE7', 'MATE8'))
+
+# Magnesium 
+mrs2_ids <- df_res$root_48h_0h[grep('mrs', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+mrs2_hd <- hm_data2(gene_ids = mrs2_ids)
+mrs2_hd[c(1,2)] <- lapply(mrs2_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels=c('MRS2a', 'MRS2b'))
+
+# CorA Magnesium transporter
+cora_ids <- df_res$root_48h_0h[grep('cora', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+cora_hd <- hm_data2(gene_ids = cora_ids)
+cora_hd[c(1,2)] <- lapply(cora_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels=c('CORA1', 'CORA2'))
+
+# ATX1
+atx1_ids <- df_res$root_48h_0h[grep('atx', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+atx1_hd <- hm_data2(gene_ids = atx1_ids)
+atx1_hd[c(1,2)] <- lapply(atx1_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels=c('ATXa', 'ATXb'))
+
+# Copt Copper transporter
+copt2_ids <- df_res$root_48h_0h[grep('copper transporter ', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+copt2_hd <- hm_data2(gene_ids = copt2_ids)
+copt2_hd[c(1,2)] <- lapply(copt2_hd[c(1,2)], add_labels_to_factor, column_name='gfam', labels='COPT')
+
+# YSL
+ysl_ids <- df_res$root_48h_0h[grep('metal-nicotianamine', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+ysl_hd <- hm_data2(gene_ids = ysl_ids)
+ysl_hd <- lapply(ysl_hd, add_labels_to_factor, column_name='gfam', labels='YSL')
+
+#CAX
+cax_ids <- df_res$root_48h_0h[grep('vacuolar cation', tolower(annot)),.(geneid, annot, araport, annot2, log2FoldChange, padj)][,geneid]
+cax_hd <- hm_data2(gene_ids = cax_ids)
+cax_hd <- lapply(cax_hd, add_labels_to_factor, column_name='gfam', labels=c('CAX1', 'CAX2'))
+
+#ABC
+abc_ids <- df_res$root_48h_0h[grep('abc transporter', tolower(annot)),.(sig, geneid, annot, araport, araport2,  annot2, log2FoldChange, padj)][sig=='FDR<0.05',geneid]
+abc_hd <- hm_data2(gene_ids = abc_ids)
+abc_hd <- lapply(abc_hd, add_labels_to_factor, column_name='gfam', labels=paste("ABC", 1:17, sep=''))
+
+row_gfam_ha <- rowAnnotation(family=transporters_l2f$gfam, col = list(family=c("ZIP" = "#8DD3C7",   "HMA" = "#FFFFB3",   "MTP" = "#BEBADA",
+                                                                                    "VIT" = "#FB8072", "PCR" = "#80B1D3", "NRAMP" = "#FDB462", 
+                                                                                    "HMP" = "#B3DE69", "MATE" = "#FCCDE5", "MRS2" = "#D9D9D9", 
+                                                                               "CorA" = "#BC80BD", "ATX" = "#CCEBC5", "COPT" = "#FFED6F", 
+                                                                               "YSL" = "#E41A1C", "CAX" = "#377EB8", "ZIP" = "#4DAF4A", 'ABC'="#0EAD9A")))
+
+
+lis=list(hma_hd,zip_hd,vit_hd,pcr_hd,nramp_hd,hmp_hd,mate_hd,mrs2_hd,cora_hd,atx1_hd,copt2_hd,ysl_hd,cax_hd,abc_hd)
+lis=list(hma_hd,zip_hd,vit_hd,pcr_hd,nramp_hd,hmp_hd,mate_hd,mrs2_hd,cora_hd,atx1_hd,copt2_hd,ysl_hd,cax_hd)
+
+metal_tr_hm <- hm_l2(lis = list(hma_hd,zip_hd,vit_hd,pcr_hd,nramp_hd,hmp_hd,mate_hd,mrs2_hd,cora_hd,atx1_hd,copt2_hd,ysl_hd,cax_hd,abc_hd), onlysig = T,
+                   ncbi = T, tissue = 'root')
+
+
+
+gfam_carot <- levels(carot_lines[[1]][, gfam] )
+colors_carot <- c25[1:length(gfam_carot)]
+
+photoresp_lf_hmd[ c(1,3)] <- lapply(photoresp_lf_hmd[ c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('Clp', 'GAPC', 'FQR1', 'APX5', 'MCO1', 'GDH3', 'ACO1', 'GLX1', 'CYT1', 'SIR', 'GLXI:3', 'PK'))
+add_labels_to_factor(data_table = x, column_name = 'gfam', labels = )
+
+hm_l2(lis = list(hma_hd,zip_hd,vit_hd,pcr_hd,nramp_hd,hmp_hd,mate_hd,mrs2_hd,cora_hd,atx1_hd,copt2_hd,ysl_hd,cax_hd,abc_hd), tissue = 'both', ncbi = T, steps = c('hma', 'zip', 'vit', 'pcr', 'nramp', 'hmp', 'mate', 'mrs2', 'cora', 'atx', 'copt', 'ysl', 'cax', 'abc'))
+
+```
+
+
+# LEAVES CLUSTERS
+
+Leaves GO terms produced 3 clusters, one protein folding, cellular response to heat, and cell detoxification
+
+Within this paper 10.1111/j.1365-294X.2006.02981.x, locus AT2G40710 was found to be asociated with Zn hyperaccumlation. This gene is in the same orthogroup as Tc09v2_t013220.1 Heptahelical transmembrane protein 2. member of the 660 OG. This OG is in cluster 1 and is compromised within pathway AMPK siganling, Adipocyrokine l, longevity, alcoholic fatty liver adn non alcoholic fatty iver
+
+In the photosynthesis and photorespiration subpatheay we can find a 2 glyceraldehyde 3 phosphate deshydrogenase (GAPC). A close ortholog to the cytosolic version of this gene localized to the nucleus after heat treatment (10.1111/tpj.15981).
+
+
+Tc09v2_t021280.2 CBL-interacting serine/threonine-protein kinase 3 AT5G21326.1 is a orthologue to AT5G21326, a calcineurin b-like (CBL)  interacting protein kinase, which phosphorilates Vacualar transporters (MBT) RBOH, and ABA ubiquitin ligases under High Mg. This links Ca bursrsts, the ROS siganling, hormone signaling degradation and ion stress in plant cells
+
+Tc07v2_t000690.1 Heat shock cognate protein 80 is an ohtolog to AT5G56010, a Heat shock cognate protein that is upregulated under high Ca but not heat steress in arath. Overexpression reduced tolerance to heat and increased tolerance to Ca. 
+
+Tc04v2_t012040.2 Serine/threonine-protein kinase AtPK2/AtPK19 ortholog to > AT3G08720 Encodes a ribosomal-protein S6 kinase. Gene expression is induced by cold and salt (NaCl). Activation of AtS6k is regulated by 1-naphthylacetic acid and kinetin, at least in part, via a lipid kinase-dependent pathway. Phosphorylates specifically mammalian and plant S6 at 25 degrees C but not at 37 degrees C. Involved in translational up-regulation of ribosomal proteins. 
+
+(Phospholipase Dδ and phosphatidic acid mediate heat-induced nuclear localization of glyceraldehyde-3-phosphate dehydrogenase in Arabidopsis) https://doi.org/10.3389/fpls.2020.598654 
+Tc01v2_t031140.1 Phospholipase D beta 1 AT2G42010.1
+
+
+
+Cluster 1 is photosystem, cell wall and terpenoid
+
+
+```{r}
+lfcl1 <- unlist(ORA_leaf_geno2[pathway %in% rnkLfBP[cluster==1, GO_ID][[1]], overlapGenes]) #the genes in tthe first GO term clusters in leaves
+
+df_res$leaf_48h_0h[geneid %in% lfcl1][sig=='FDR<0.05', .(orthogroup, superortho, annot, araport2, arath)]
+
+df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup), .(orthogroup, superortho, annot, araport2, annot2)]
+
+lfcl_hmdata <- hm_data2(gene_ids = df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup),][sig=='FDR<0.05', geneid])
+test <- hm_l2(list(lfcl_hmdata), gfam_tissue = 'leaf')
+lfcl_hmdata <- hm_data(gene_ids = df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup),][sig=='FDR<0.05', geneid], gfam = 'superortho')
+test2 <- hm_l2(list(lfcl_hmdata), gfam_tissue = 'leaf')
+test[[1]]+test2[[1]]
+
+
+source('go_identity_matrix.R')
+
+leafc <- split(x = lfcl1_kp$gene_id, f = lfcl1_kp$category)
+leafc <- do.call(rbind, lapply(leafc, jaccard_gocat, gene_go_list = leafc))
+colnames(leafc) <- rownames(leafc)
+
+
+leaf_binar <- simplifyEnrichment::binary_cut(leafc)
+
+Heatmap(t(leafc), cluster_rows = F, cluster_columns = F, row_split = leaf_binar, column_split  = leaf_binar, column_order = leaf_binar, row_order = leaf_binar)
+Heatmap(t(leafc))
+
+
+leafcat <- rownames(leafc)
+leafcat <- data.table(leafcat, leaf_binar)
+
+rnk <- data.table(leafcat)
+rnk <- rnk[, .(kegg_path=list(.SD[1:.N, leafcat]), .N), .(leaf_binar)][order(N, decreasing = T),]
+bclusters <- rnk
+bclusters[!(bclusters$leaf_binar %in% rnk[N>=4, leaf_binar]), 'leaf_binar'] <- 100
+bclusters[leaf_binar!=100]
+
+#rnk <- rnk[, .(kegg_path=list(.SD[1:.N, leafcat]), .N), .(leaf_binar)][order(N, decreasing = T),]
+rnk$genes_in <- lapply(rnk$kegg_path, function(x) lfcl1_kp[category %in% x, gene_id])
+rnk$genes_n <- lapply(rnk$kegg_path, function(x) length(lfcl1_kp[category %in% x, gene_id]))
+
+
+#REMOVE THE BIN
+
+leafc1 <- leafc[!rownames(leafc) %in% rnk$kegg_path[[1]],!colnames(leafc) %in% rnk$kegg_path[[1]] ]
+leafc2 <- leafc[rownames(leafc) %in% rnk$kegg_path[[2]],colnames(leafc) %in% rnk$kegg_path[[2]] ]
+
+bclusters <- bclusters[bclusters$cluster!=100, ]
+bclusters[, genes_in:=sapply(genes_in, function(x) paste(x, collapse = ", "))]
+bclusters[, kegg_path:=sapply(kegg_path, function(x) paste(x, collapse = ", "))]
+bclusters[, genes_n:=sapply(genes_n, function(x) paste(x, collapse = ", "))]
+
+write.table(x = bclusters, file = 'leaf_pathway_clusering_supp.txt', append = F, quote = F, sep = '\t', row.names = F, col.names = T)
+
+pdf(width = 20, height = 20, file = 'leaf_pathway_clusering.pdf')
+heatmap(t(leafc1), Rowv = leaf_binar, Colv = leaf_binar)
+dev.off()
+
+# interaction through IntAct (EMBL)
+
+writeLines(df_res$leaf_48h_0h[geneid %in% unique(lfcl1_kp[, lookup]), .(geneid, log2FoldChange, annot, araport2, arath, orthogroup)][,arath], sep = ',')
+
+writeLines(df_res$leaf_48h_0h[geneid %in% unique(lfcl1_kp[, lookup]), .(geneid, log2FoldChange, annot, araport2, arath, orthogroup)][,arath], sep = ',')
+
+writeLines(df_res$leaf_48h_0h[geneid %in% unique(lfcl1_kp[category %in% leafcat[leaf_binar==35, leafcat], lookup]), .(geneid, log2FoldChange, annot, araport2, arath, orthogroup)][!is.na(arath),arath], sep = ',')
+writeLines(df_res$leaf_48h_0h[geneid %in% unique(lfcl1_kp[category %in% leafcat[leaf_binar==35, leafcat], lookup]), .(geneid, log2FoldChange, annot, araport2, arath, orthogroup)][!is.na(araport2),araport2], sep = ',')
+
+writeLines(df_res$leaf_48h_0h[, arath], sep = ',')
+
+intact <- read.delim('IntAct_leaf48h_2023-09-20-18-49.txt')
+
+
+```
+
+# Photosynthesis and respiration 
+515 ATP-dependent caseinolytic (Clp) protease/crotonase family protein;(source:Araport11)
+706 glyceraldehyde 3 phosphate deshydrogenase (GAPC)
+724 FQR1-like NAD(p)H deshydrogenase, FLAVODOXIN-LIKE QUINONE REDUCTASE 1, FQR1
+870 Peroxidase APX5
+1234 AO, CUPREDOXIN SUPERFAMILY PROTEIN, MCO1
+1359 GDH3 Glutamate dehydrogenase
+1500 ACO1, ACONITASE 1, RTD3
+1504 ATGLX1, ATGLYI3, GLX1, GLYOXALASE I HOMOLOG, GLYOXALASEI 3
+2346 CYT1, CYTOKINESIS DEFECTIVE 1, EMB101, EMBRYO DEFECTIVE 101, GDP-MANNOSE PYROPHOSPHORYLASE 1, GMP1, SENSITIVE TO OZONE 1, SOZ1, VITAMIN C DEFECTIVE 1, VTC1
+2346 CYT1, CYTOKINESIS DEFECTIVE 1, EMB101, EMBRYO DEFECTIVE 101, SENSITIVE TO OZONE 1, SOZ1, VITAMIN C DEFECTIVE 1, VTC1
+4758 SIR, SULFITE REDUCTASE
+7090  ATGLYI2, GLXI.3, GLXI:3, GLYI2, GLYOXALASE I;3, GLYOXALASE12
+9267 Pyruvate kinase PK
+
+betaine hydrolase in stress tolerance and maitanance of the PS https://doi.org/10.3389/fpls.2021.650215
+Mannose in cell wall  doi: 10.1016/j.resmic.2021.103884.
+ketoacyl expression under Cd stress doi: 10.3389/fpls.2023.1222288
+KCS in arath for cutin production/suberin  https://doi.org/10.1093/jxb/erad381
+KCS hmologue alfalfa drought cuticular wax https://doi.org/10.1021/acs.jafc.3c03881 
+Isoleucne degradation HIBCH, 3-hydroxyisobutyryl-CoA hydrolase https://doi.org/10.3389/fpls.2022.995205
+
+
+```{r}
+# genes involved in Photosynthesis and respiration 
+
+rownames(leafc)[leaf_binar==1] # glycolisis cgluconeogenesis ascorbate pyruvate carbon fixtion in photosynthetic org. 
+rownames(leafc)[leaf_binar==2] # TcA glycoxylate dn dicarboxilate, carbon fix in prokaryotes
+rownames(leafc)[leaf_binar==21] # sulphite / chloroplast 
+
+
+rownames(leafc)[leaf_binar==25] # mran survailace
+rownames(leafc)[leaf_binar==27] # PAS domain and Tyr Kinase
+
+rownames(leafc)[leaf_binar==3] # Mannose cell wall
+rownames(leafc)[leaf_binar==4] # Galactose/galactinol cell wall
+rownames(leafc)[leaf_binar==13] #sugarrs  cell wall
+rownames(leafc)[leaf_binar==10] # glycolipid  cell wall
+
+
+rownames(leafc)[leaf_binar==5] # Suberin cutin
+rownames(leafc)[leaf_binar==6] # trypto
+rownames(leafc)[leaf_binar==7] # 
+rownames(leafc)[leaf_binar==8] # 
+rownames(leafc)[leaf_binar==9] # 
+rownames(leafc)[leaf_binar==12] # 
+rownames(leafc)[leaf_binar==13] # 
+rownames(leafc)[leaf_binar==14] # 
+rownames(leafc)[leaf_binar==15] # 
+rownames(leafc)[leaf_binar==16] # 
+rownames(leafc)[leaf_binar==17] # 
+rownames(leafc)[leaf_binar==18] # 
+rownames(leafc)[leaf_binar==19] # 
+rownames(leafc)[leaf_binar==20] # 
+
+photoresp_lf_og <- unique(lfcl1_kp[category %in% c(rownames(leafc)[leaf_binar==2],rownames(leafc)[leaf_binar==1], rownames(leafc)[leaf_binar==21]) , orthogroup])
+photoresp_lf_og <- photoresp_lf_og[!is.na(photoresp_lf_og)]
+photoresp_lf <- df_res$leaf_48h_0h[orthogroup %in% photoresp_lf_og]
+photoresp_lf_hmd <- hm_data2(gene_ids = photoresp_lf[,geneid])
+
+photoresp_lf_hmd[ c(1,3)] <- lapply(photoresp_lf_hmd[ c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('Clp', 'GAPC', 'FQR1', 'APX5', 'MCO1', 'GDH3', 'ACO1', 'GLX1', 'CYT1', 'SIR', 'GLXI:3', 'PK'))
+
+```
+
+	
+643 ATGOLS3, GALACTINOL SYNTHASE 3, GOLS3
+692  ATSUS3, SUCROSE SYNTHASE 3, SUS3
+747 ATSIP1, RAFFINOSE SYNTHASE 1, RS1, SEED IMBIBITION 1, SIP1, loads to phloem sugar
+1125 ATBAM3, BAM3, BETA-AMYLASE 3, BETA-AMYLASE 8, BMY8, CHLOROPLAST BETA-AMYLASE, CT-BMY
+2346 CYT1, CYTOKINESIS DEFECTIVE 1, EMB101, EMBRYO DEFECTIVE 101, SENSITIVE TO OZONE 1, SOZ1, VITAMIN C DEFECTIVE 1, VTC1
+4465 RAFFINOSE SYNTHASE 5, RS5, SEED IMBIBITION 1-LIKE, SIP1 enhances drought tolerance throug production of raffinose and galactinol hydrolysis (	10.1096/fasebj.2022.36.S1.R5351)
+414 TPPE, TREHALOSE-6-PHOSPHATE PHOSPHATASE E | HAD superfamily
+643 ATGOLS3, GALACTINOL SYNTHASE 3, GOLS3. the overexpression of GOLS enhanced ROS at expense of cold tolerance 10.1093/treephys/tpx100
+692 ATSUS3, SUCROSE SYNTHASE 3, SUS3. It regulated the starch acuulation in guard cells at the end of the day, 	10.1080/15592324.2023.2171614
+747 ATSIP2, RAFFINOSE SYNTHASE 2, RS2, SEED IMBIBITION 2, SIP2. Catalyzes the breakdown of alpha raffinose to alpha galactose and sucrose
+1125  ATBAM3, BAM3, BETA-AMYLASE 3, BETA-AMYLASE 8, BMY8, CHLOROPLAST BETA-AMYLASE, CT-BMY. IN cold stress BAM3 accumulates expression is increased through 3 days but also had a reduced activity. I RNAi lines failed to accumulate Maltose under cold stress. 
+2346 CYT1, CYTOKINESIS DEFECTIVE 1, EMB101, EMBRYO DEFECTIVE 101, SENSITIVE TO OZONE 1, SOZ1, VITAMIN C DEFECTIVE 1, VTC1
+4465  RAFFINOSE SYNTHASE 5, RS5, SEED IMBIBITION 1-LIKE, SIP1. Raffinose synthese gene in arabidopsis within the same OG enhaced drought tolerance by synthetizing raffinose and galactinol hyrolysis in maize and arabth  	10.1074/jbc.RA120.013948. In another study raffinose synthase seems to enhance dessitcation tlerance adqcuisition during seed developmentin Ararth 	10.1016/j.jplph.2018.10.011. 
+
+
+
+```{r}
+# carbohydrate including galactose
+
+rownames(leafc)[leaf_binar==3] # fructose mannose amino sugar nucleotide 
+rownames(leafc)[leaf_binar==4] # galactose metabolism
+rownames(leafc)[leaf_binar==13] # starch and sucrose
+
+galactose_lf_og <- unique(lfcl1_kp[category %in% c(rownames(leafc)[leaf_binar==3], rownames(leafc)[leaf_binar==4], rownames(leafc)[leaf_binar==13]), orthogroup])
+galactose_lf_og <- galactose_lf_og[!is.na(galactose_lf_og)]
+galactose_lf_og <- galactose_lf_og[!(galactose_lf_og %in% photoresp_lf_og)]
+
+galactose_lf <- df_res$leaf_48h_0h[orthogroup %in% galactose_lf_og, ]
+galactose_lf_hmd <- hm_data2(galactose_lf[, geneid])
+
+galactose_lf_hmd[c(1,3)] <- lapply(galactose_lf_hmd[c(3)], add_labels_to_factor, column_name='gfam', labels=c('CWINV1', 'GOLS3', 'SUS3', 'RS1', 'BAM3', 'RS5', 'TPPE'))
+
+
+```
+
+   orthogroup                                                             annot       arath araport2
+1:        111                       Tc09v2_t010210.1 3-ketoacyl-CoA synthase 11 AT2G26640.1     <NA> 3-KETOACYL-COA SYNTHASE 11, KCS11, (fatty acid elongation)
+2:        515              Tc04v2_t005300.2 3-hydroxyisobutyryl-CoA hydrolase 1 AT2G30660.1     <NA> CLP
+3:        515 Tc01v2_t014580.1 3-hydroxyisobutyryl-CoA hydrolase-like protein 5 AT2G30660.1     <NA> clp
+4:        740                            Tc03v2_t021700.1 Primary amine oxidase AT4G12280.1     <NA> COA copper amine oxidadse
+5:       1059                             Tc10v2_t000130.1 Protein ECERIFERUM 1 AT2G37700.1     <NA>  FAH	Fatty acid hydroxylase superfamily;(source:Araport11)
+6:       1059                             Tc02v2_t001340.2 Protein ECERIFERUM 1 AT2G37700.1     <NA> 	Fatty acid hydroxylase superfamily;(source:Araport11). In arath, loss of function of this gene was shown to loose osmotolerance induced after slat stress . Reduced cutin and wax was also seen  10.3389/fpls.2022.898317
+7:       1359                        Tc03v2_t012030.1 Glutamate dehydrogenase 2 AT3G03910.1     <NA> GDH3 May play role in nitrogen dmetabolism , seems to bbe regulated by nitrogen and carbon metabolism. seems to be involved in providing 22Oxoglutarato to the TCA cycle 	10.1105/tpc.112.103689
+8:       1745               Tc09v2_t004050.1 Putative Caffeoylshikimate esterase AT1G73480.1     <NA> MAGL4 alpha beta hydrolase superfamily
+
+
+```{r}
+
+# Wax and fatty acid and aminoacids
+rownames(leafc)[leaf_binar==5] # fatty acid elongation
+rownames(leafc)[leaf_binar==6] # fatty acid, to tryptophan
+rownames(leafc)[leaf_binar==7] # cutin suberin and wax
+
+
+rownames(leafc)[leaf_binar==9] # arginine, alanine, aspartate, glutamate, nitrogen tubule
+rownames(leafc)[leaf_binar==10] # amino acid, glycine histidine glycerolupids 
+rownames(leafc)[leaf_binar==11] # tyrosine isoquinolone tropane alkaloids
+
+#also add the DGDG and MGDG?
+# og 1708
+# Digalactosyldiacylglycerol synthase
+
+
+wax_lf_og <- unique(lfcl1_kp[category %in% c(rownames(leafc)[leaf_binar==5], rownames(leafc)[leaf_binar==6], rownames(leafc)[leaf_binar==7], rownames(leafc)[leaf_binar==9], rownames(leafc)[leaf_binar==10], rownames(leafc)[leaf_binar==11], rownames(leafc)[leaf_binar==15] ), orthogroup])
+wax_lf_og <- wax_lf_og[!is.na(wax_lf_og)]
+wax_lf_og <- wax_lf_og[!(wax_lf_og %in% photoresp_lf_og)]
+wax_lf <- unique(df_res$leaf_48h_0h[orthogroup %in% wax_lf_og, ])
+wax_lf_hmd <- hm_data2(wax_lf[, geneid])
+wax_lf_hmd[c(1,3)] <- lapply(wax_lf_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c( 'COA', 'FAH', 'GDH2',"ECRFM", 'MAGL4')) #fatty acid hydroxylase
+# 'KCS11', 'Clp' were removed since they appear in pphotoresp_og
+
+```
+
+   orthogroup                                                                                       annot       arath araport2
+1:        388                                        Tc04v2_t017910.3 Mitogen-activated protein kinase 16 AT2G42880.1     <NA> ATMPK20, MAP KINASE 20, MPK20 | listed as a potential target for drougth tolerance improvement 10.3389/fchem.2017.00115
+2:        388                                        Tc02v2_t024550.1 Mitogen-activated protein kinase 17 AT2G42880.1     <NA> 
+3:       1211                                                  Tc02v2_t026240.3 Purple acid phosphatase 3 AT2G01880.1     <NA> 
+ATPAP7, PAP7, PURPLE ACID PHOSPHATASE 7 | Ortholog mutatn in arabidopsis is albino. 	10.1104/pp.17.00982
+4:       1211                                                  Tc03v2_t004780.1 Purple acid phosphatase 3 AT2G01880.1     <NA>
+5:       1211                                                  Tc02v2_t026250.1 Purple acid phosphatase 3 AT2G01880.1     <NA>
+6:       1359                                                  Tc03v2_t012030.1 Glutamate dehydrogenase 2 AT3G03910.1     <NA> GDH3
+7:       7110                                   Tc04v2_t000690.1 Protein farnesyltransferase subunit beta AT5G40280.1     <NA> ARABIDOPSIS THALIANA FARNESYL TRANSFERASE BETA SUBUNIT, ATFTB, ENHANCED RESPONSE TO ABA 1, ERA1, WIG, WIGGUM | meristem org and ABA signal transduction. required for cuticule formation
+8:       7878 Tc04v2_t025880.1 Protein farnesyltransferase/geranylgeranyltransferase type-1 subunit alpha AT3G59380.1     <NA> ATFTA, FARNESYLTRANSFERASE A, FTA, PFT/PGGT-IALPHA, PLP, PLURIPETALA | Geranyl geranyl transferacse , involved in ABA and drought response | Help guide TIP in root hairs 10.1111/tpj.13179, Downregulation in canola by means of RNAi improved drought toleracne yield loss in canola 	10.1093/mp/ssn088. 
+
+```{r}
+#terps
+rownames(leafc)[leaf_binar==9] # Ubiquinone and other terps
+rownames(leafc)[leaf_binar==18] # terpenoid backbone
+rownames(leafc)[leaf_binar==17] # riboflavin metabolism 
+rownames(leafc)[leaf_binar==20] # carotenoid
+
+
+terp_lf_og <- unique(lfcl1_kp[category %in% c(rownames(leafc)[leaf_binar==9], rownames(leafc)[leaf_binar==18], rownames(leafc)[leaf_binar==17], rownames(leafc)[leaf_binar==20]), orthogroup])
+terp_lf_og <- terp_lf_og[!is.na(terp_lf_og)]
+terp_lf_og <- terp_lf_og[!(terp_lf_og %in% photoresp_lf_og)]
+
+terp_lf <- df_res$leaf_48h_0h[orthogroup %in% terp_lf_og,]
+terp_lf_hmd <- hm_data2(terp_lf[, geneid])
+
+terp_lf_hmd[c(1,3)] <- lapply(terp_lf_hmd[c(3)], add_labels_to_factor, column_name='gfam', labels=c('MAPk20', 'NCED', 'PAP7', 'ABAO' , 'FTB', 'FTA'))
+# 'GDH3' was in other photo
+
+```
+
+```{r}
+carbon_cellWall <- 
+  
+  hm_l2v2(lis = list(photoresp_lf_hmd,  galactose_lf_hmd, wax_lf_hmd, terp_lf_hmd), steps = c('TCA', 'CHO', 'FA', 'Terp'), gfam_tissue = 'leaf', row_gene_ids = 'ncbi', onlysig = T, tissue = 'both')
+# I made this one by running the function step by step idk what is the issue for now it doesn't matter 
+
+pdf(file = 'leaf_cluster_hm.pdf', width = 5, height = 7)
+hm
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+#arabidopsis RBBH 
+aranames_leafc1 <- cr[match(carbon_cellWall[[3]]$geneids, crv3.2),.(ncbi, araport2)][, araport2]
+aranames_leafc1[is.na(aranames_leafc1)] <- ''
+
+#print out pdf of heatmap
+
+pdf(file = 'leaf_c1_hm.pdf', width = 8, height = 10)
+carbon_cellWall[[1]]+
+  rowAnnotation(labels = anno_text(carbon_cellWall[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(carbon_cellWall[[4]]))))+
+  rowAnnotation(labels   = anno_text(aranames_leafc1, which = "row"), 
+                width = max(grobWidth(textGrob(aranames_leafc1))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+```
+
+
+
+Malectin binding domain protein (og 5872) oordinated the ABA stress response after pathogeninfection 10.1111/mpp.13265
+
+```{r}
+rownames(leafc)[leaf_binar==12] # marked mostly drugmetabolsim (human)
+rownames(leafc)[leaf_binar==14] # B glycan 
+rownames(leafc)[leaf_binar==15]
+rownames(leafc)[leaf_binar==16]
+rownames(leafc)[leaf_binar==19] #brassinoesteroid
+rownames(leafc)[leaf_binar==20] #carotenoid
+rownames(leafc)[leaf_binar==21] #sulphur 
+rownames(leafc)[leaf_binar==22] #phenyl propnodi 
+rownames(leafc)[leaf_binar==23] #bunch of diseases
+rownames(leafc)[leaf_binar==24] #ribosome
+rownames(leafc)[leaf_binar==25] # mRNA survaillance?
+rownames(leafc)[leaf_binar==26] # 
+rownames(leafc)[leaf_binar==27] # splicesome, mapk, prion legionelasis, toxoplasm, measles
+rownames(leafc)[leaf_binar==28] # 
+rownames(leafc)[leaf_binar==29] #PPAR signaling
+rownames(leafc)[leaf_binar==30] #ucleotisde excicion repair
+rownames(leafc)[leaf_binar==31] #mapk signalng, plant hormone signal transdcuction
+rownames(leafc)[leaf_binar==32]
+rownames(leafc)[leaf_binar==33]
+rownames(leafc)[leaf_binar==34]
+rownames(leafc)[leaf_binar==35] #plant pathogen interaction
+rownames(leafc)[leaf_binar==36] # 
+rownames(leafc)[leaf_binar==37] #circadian rythm plant
+
+
+heat_path <- unique(lfcl1_kp[grep('heat', tolower(cr)),category])
+heat_og <- unique(lfcl1_kp[grep('heat', tolower(cr)),orthogroup])
+heat_og <- heat_og[!is.na(heat_og)]
+
+heat_arath <- df_res$leaf_48h_0h[grep('heat', tolower(annot)),.(annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',arath]
+heat_arath <- append(heat_arath, df_res$leaf_48h_0h[grep('heat', tolower(annot)),.(annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',araport2])
+heat_arath <- append(heat_arath, df_res$leaf_48h_0h[grep('chap', tolower(annot)),.(annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',araport2])
+heat_arath <- append(heat_arath, df_res$leaf_48h_0h[grep('chap', tolower(annot)),.(annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',arath])
+
+heat_arath <- unique(heat_arath)
+heat_arath <- heat_arath[!is.na(heat_arath)]
+heat_arath <- heat_arath[-7]
+writeLines(text = heat_arath, sep = ',')
+
+writeLines(text = df_res$leaf_48h_0h[ orthogroup %in% heat_og, .(padj, sig, geneid, annot, orthogroup, arath)][order(orthogroup), arath], sep = ',', )
+
+
+heat_og <- unique(lfcl1_kp[category %in% heat_path, orthogroup])
+heat_og <- heat_og[!is.na(heat_og)]
+heat_og <- heat_og[!(heat_og %in% photoresp_lf_og)]
+heat_og <- heat_og[!(heat_og %in% galactose_lf_og)]
+heat_og <- heat_og[!(heat_og %in% terp_lf_og)]
+heat_og <- heat_og[!(heat_og %in% wax_lf_og)]
+
+heat_lf <- df_res$leaf_48h_0h[orthogroup %in% heat_og, ]
+
+heat_cacao <- df_res$leaf_48h_0h[grep('heat', tolower(annot)),.(geneid, annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',geneid]
+heat_cacao <- append(heat_cacao, df_res$leaf_48h_0h[grep('heat', tolower(annot)),.(geneid, annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05', geneid])
+heat_cacao <- append(heat_cacao, df_res$leaf_48h_0h[grep('chap', tolower(annot)),.(geneid, annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',geneid])
+heat_cacao <- append(heat_cacao, df_res$leaf_48h_0h[grep('chap', tolower(annot)),.(geneid, annot, orthogroup, sig, arath, araport2)][sig=='FDR<0.05',geneid])
+
+heat_cacao <- result_dt[!is.na(Hub),geneid]
+heat_cacao <- unique(heat_cacao)
+
+heat_lf_hmd <- hm_data2(df_res$leaf_48h_0h[ orthogroup %in% heat_og, geneid])
+
+heat_lf_hmd <- hm_data2(gene_ids = heat_cacao)
+
+
+# In this case we will split by gene families and then color by Hub
+
+
+leafc1_og <- unique(c(photoresp_lf$orthogroup, galactose_lf$orthogroup, wax_lf$orthogroup, terp_lf$orthogroup, heat_lf$orthogroup))
+
+heat_lf_hmd[c(1,3)] <- lapply(heat_lf_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('GST', 'CBLK', 'HSPc1', 'PR1', 'HSC70', 'PARB', 'PAS', 'CXXS1', 'MAPK3', 'HSP80', 'NFsY', 'PLB', 'DNAJ', 'HSP70.14','Os1', 'SHSP', 'EXO', 'HSP90.6', 'PK2', 'HSP70.90', 'SGT1', 'ClpB1',  'HP', 'DDOG', 'LSM5', 'HSPcIV') )
+
+heat_lf_hmd[c(1,3)] <- lapply(heat_lf_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('HSP17.6B', 'HSP70.18', 'HSP90.7', 'HSP91', 'HSP21', 'HSP88.1', 'HSP18.5'))
+
+heat_lf_hmd[c(1,3)] <- lapply(heat_lf_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('BOI', 'DJC24', 'FSD1', 'GRF2', 'HSFB3', 'HSP17.1', 'HSP23.6', 'HSP70-1', 'HSP70-4', 'HSP90-7', 'HSP90-1', 'ZAT7', 'cph1'))
+
+heat_lf_hmd[c(1,3)] <- lapply(heat_lf_hmd[c(1,3)], add_labels_to_factor, column_name='gfam', labels=c('HSP20-like', 'HSP70-18', 'HSFa', 'DNA-J', 'HSP60', 'HSFb', 'HSP90-7', 'HSP23', 'CPN', 'ClpB1','ERD')) #these are the gene families and will use the Hub to color
+
+
+if (tissue=='both'){
+    l2f <- merge(x = root_l2f, y = leaf_l2f, by='geneid', all=T)
+    padj <- merge(x = root_padj, y = leaf_padj, by='geneid', all=T)
+    colsplt <- factor(rep(c("Root", "Leaf"), each=3), ordered = T, levels = c('Root', 'Leaf'))
+    idx <- c(2:4, 6:8)
+  } else if (tissue=='leaf'){
+    l2f <- leaf_l2f
+    padj <- leaf_padj
+    colsplt <- factor(rep(c("Leaf"), times=3), ordered = T, levels = c('Root', 'Leaf'))
+    idx <- c(1:3)
+  } else if (tissue=='root'){
+    l2f <- root_l2f
+    padj <- root_padj
+    colsplt <- factor(rep(c("Root"), times=3), ordered = T, levels = c('Root', 'Leaf'))
+    idx <- c(1:3)
+  }
+
+
+#HSP20-like
+#HSP70-18
+#HSF==AT2G26150.1==heat stress factor
+#AT2G41690.1 304=DNAJ
+#AT2G33210.1 = HSP60
+#AT2G41690.1 = HsF
+#AT4G24190.1 = HSP90-7, Shepherd
+#AT4G25200.1 = HSP23 mito
+#AT5G20720.1 = CPN10
+#AT1G74310.1 = ClpB1
+#AT5G51070.1 = Eearly response to dehydration ERD/ Clp family of proteases 
+
+
+
+
+#made this one step by step as well
+
+gfam_heat <- result_dt[match(unique(result_dt$geneid), heat_lf_hmd[[3]][, geneid]), Hub]
+#gfam_heat <- levels(heat_lf_hmd[[1]][, gfam] )
+colors_heat <- c25[1:length(gfam_heat)]
+col_heat <- list(gfam_heat, colors_heat)
+
+set.seed(33)
+heat_leaf_hm <- hm_l2v3(lis = list(heat_lf_hmd),row_gene_ids = 'b97', onlysig = T, tissue = 'both', gfam_tissue = 'leaf', steps=c('BOI', 'DJC24', 'FSD1', 'GRF2', 'HSFB3', 'HSP17.1', 'HSP23.6', 'HSP70-1', 'HSP70-4', 'HSP90-7', 'HSP90-1', 'ZAT7', 'cph1'))
+heat_leaf_hm2 <- hm_l2v3(lis = list(heat_lf_hmd),row_gene_ids = 'b97', onlysig = T, tissue = 'both', gfam_tissue = 'leaf', steps=col_heat[[1]])
+
+
+rowAnnotation(Step=STEP, col = list(Step=c("Biosynthesis" = "#8DD3C7",   "Signaling" = "#FFFFB3")))
+
+c25[factor(c("HSP17.6", "HSP17.1", "HSP70-1", "HSP90.1", "HSP90-7", "HSP23.6", "cph1",   
+      "HSFB3",   "HSP70-4", "HSP17.8", "KN", "HSP90.1", "GRF2", 'HSP17.6', 'FSD1', 'DJC24', 'BOI', 'ZAT7'))]
+
+c("HSP17.6" ='skyblue2', "HSP17.1" = 'gold1', "HSP70-1" = '#CAB2D6', "HSP90.1" = 'khaki2', "HSP90-7" ='gray70', "HSP23.6" = 'palegreen2', "cph1" = '#E31A1C', "HSFB3" = 'black',   "HSP70-4" = '#FDBF6F', "HSP17.8" = '#FB9A99', "KN"='maroon', "HSP90.1" ='khaki2', "GRF2" ='#FF7F00', 'HSP17.6' = '#6A3D9A', 'FSD1' ='green4', 'DJC24' = 'dodgerblue2', 'BOI' = 'orchid1', 'ZAT7' = 'skyblue4')
+
+ha = HeatmapAnnotation(
+    df = sub(pattern = '\\_.*', replacement = '', x = result_dt[match(unique(result_dt$geneid), heat_lf_hmd[[3]][, geneid]), Hub]),
+    col = c(
+    "HSP17.6" = 'skyblue2', 
+    "HSP17.1" = 'gold1', 
+    "HSP70-1" = '#CAB2D6', 
+    "HSP90.1" = 'khaki2', 
+    "HSP90-7" = 'gray70', 
+    "HSP23.6" = 'palegreen2', 
+    "cph1" = '#E31A1C', 
+    "HSFB3" = 'black',   
+    "HSP70-4" = '#FDBF6F', 
+    "HSP17.8" = '#FB9A99', 
+    "KN" = 'maroon', 
+    "GRF2" = '#FF7F00'
+))
+
+
+an <- as.data.frame.matrix(table(result_dt$geneid, result_dt$Hub))
+
+colnames(an) <- sub(pattern = '\\_.*', replacement = '', x = result_dt[match(colnames(an), Hub), Hub])
+
+col = c(
+    "HSP17.6" = 'skyblue2', 
+    "HSP17.1" = 'gold1', 
+    "HSP70-1" = '#CAB2D6', 
+    "HSP90.1" = 'khaki2', 
+    "HSP90-7" = 'gray70', 
+    "HSP23.6" = 'palegreen2', 
+    "cph1" = '#E31A1C', 
+    "HSFB3" = 'black',   
+    "HSP70-4" = '#FDBF6F', 
+    "HSP17.8" = '#FB9A99', 
+    "KN" = 'maroon', 
+    "GRF2" = '#FF7F00', 
+    "BOI" ='orchid1',
+    "DJC24" = 'dodgerblue2',
+    "FSD1" = 'green4',
+    "ZAT7" = 'skyblue4'
+    )
+
+# Provided color mappings for each hub
+hub_colors <- c(
+    "HSP17.6" = 'skyblue2', 
+    "HSP17.1" = 'gold1', 
+    "HSP70-1" = '#CAB2D6', 
+    "HSP90.1" = 'khaki2', 
+    "HSP90-7" = 'gray70', 
+    "HSP23.6" = 'palegreen2', 
+    "cph1" = '#E31A1C', 
+    "HSFB3" = 'black',   
+    "HSP70-4" = '#FDBF6F', 
+    "HSP17.8" = '#FB9A99', 
+    "KN" = 'maroon', 
+    "GRF2" = '#FF7F00', 
+    "BOI" = 'orchid1',
+    "DJC24" = 'dodgerblue2',
+    "FSD1" = 'green4',
+    "ZAT7" = 'skyblue4'
+)
+
+# Create a color function for each hub
+color_functions <- lapply(hub_colors, function(color) {
+    function(x) ifelse(x == 1, color, NA)
+})
+
+# Convert the binary matrix to a data frame
+hub_association_df <- as.data.frame(an)
+
+# Create the HeatmapAnnotation
+ha <- HeatmapAnnotation(df = an, which='row', col = hub_colors)
+
+hub_association_colored = lapply(an, function(column, colors) {
+  print(column)
+  sapply(column, function(value) ifelse(value == 1, col[names(column)], NA))
+}, colors = col)
+
+
+hub_association_colored = sapply(names(an), function(x) {
+    # Applying the transformation to each column using its name
+    sapply(an[[x]], function(value) {
+        # Use the column name to reference the correct color
+        ifelse(value == 1, col[x], NA)
+    })
+}, simplify = FALSE)
+
+hub_association_colored_df = data.frame(hub_association_colored)
+rownames(hub_association_colored_df) = rownames(an)
+
+hm <- Heatmap(matrix = as.matrix(l2f[,..idx]), name = "Log2FoldChange",cluster_columns = F, cluster_rows = F, row_labels = rowns,
+                col=colorRamp2(c(min(l2f[,..idx], na.rm = T), 0, max(l2f[,..idx], na.rm = T)), colors = c("red", "white", "green")),
+                #column_labels = c('RtLA48h/0h', 'RtHA48Hh/0h'),
+                row_names_gp = gpar(fontsize=10),
+                left_annotation = row_gfam_ha,
+                #heatmap_legend_param = ,
+                border = T,
+                column_gap = unit(0, "mm"),
+                column_split = colsplt,
+                row_split = l2f[[gfam_col]],
+                cell_fun = cellfun
+  )
+
+
+steps=c(
+  'HSP17.6',
+  'HSP17.1',
+  'HSP70-1', 
+  'HSP90.1', 
+  'HSP90-7', 
+  'HSP23.6',
+  'cph1', 
+  'HSFB3', 
+  'HSP70-4', 
+  'HSP17.8',
+  'KN', 
+  'HSP90.1', 
+  'GRF2',
+  'HSP17.6', 
+  'FSD1', 
+  'DJC24',
+  'BOI',
+  'ZAT7'
+)
+
+
+pdf(file = 'heatshock_hm.pdf', width = 5, height = 4.5)
+heat_leaf_hm[[1]]
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+
+heat_hm <- hm_l2v2(list(heat_lf_hmd), tissue = 'both', gfam_tissue = 'leaf', plant_tribes_OG = c('HSP17.6B', 'HSP70.18', 'HSP90.7', 'HSP91', 'HSP21', 'HSP88.1', 'HSP18.5'), onlysig = T)
+
+
+
+
+
+pdf(file = 'leaf_heat_hm.pdf', width = 8, height = 10)
+heat_hm[[1]]+
+  rowAnnotation(labels = anno_text(heat_hm[[4]], which = "row"), 
+                width = max(grobWidth(textGrob(heat_hm[[4]]))))
+  #rowAnnotation(labels   = anno_text(aranames_leafc1, which = "row"), 
+   #             width = max(grobWidth(textGrob(aranames_leafc1))))
+draw(lgd_sig, x = unit(.88, "npc"), y = unit(.4, "npc"), just='center')
+dev.off()
+
+kinase_path <- unique(lfcl1_kp[grep('kinase', tolower(cr)),category])
+kinase_og <- lfcl1_kp[category %in% kinase_path, orthogroup]
+kinase_og <- kinase_og[!is.na(kinase_og)]
+kinase_og <- unique(kinase_og[!(kinase_og %in% rtcl1_kp$orthogroup)])
+
+kinase_data <- hm_data(df_res$leaf_48h_0h[ orthogroup %in% kinase_og, geneid])
+kinase_hm <- hm_l2(list(kinase_data), gfam_tissue = 'leaf')
+
+
+
+lf22 <- hm_data(gene_ids = unique(lfcl1_kp[category %in% rownames(leafc)[leaf_binar==22], lookup]))
+hm_l2(list(lf22), gfam_tissue = 'leaf')
+
+```
+
+
+# leaf clster 2
+```{r}
+
+lfcl2 <- unlist(ORA_leaf_geno2[pathway %in% rnkLfBP[cluster==2, GO_ID][[1]], overlapGenes])
+
+df_res$leaf_48h_0h[geneid %in% lfcl2][sig=='FDR<0.05', .(orthogroup, superortho, annot, araport2, arath)]
+
+df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup), .(orthogroup, superortho, annot, araport2, annot2)]
+
+lfcl2_hmdata <- hm_data(gene_ids = df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup),][sig=='FDR<0.05', geneid])
+test <- hm_l2(list(lfcl_hmdata), gfam_tissue = 'leaf')
+lfcl_hmdata <- hm_data(gene_ids = df_res$leaf_48h_0h[orthogroup %in% unique(lfcl1_kp[!is.na(orthogroup),orthogroup])][order(orthogroup),][sig=='FDR<0.05', geneid], gfam = 'superortho')
+test2 <- hm_l2(list(lfcl_hmdata), gfam_tissue = 'leaf')
+test[[1]]+test2[[1]]
+
+lfcl2_kp <- kegg_html(html_file = 'kegg_hacking/kegg_lfcl2BP_pathway.html', tissue = 'leaf')
+
+source('go_identity_matrix.R')
+
+leafc2 <- split(x = lfcl2_kp$gene_id, f = lfcl2_kp$category)
+leafc2 <- do.call(rbind, lapply(leafc2, jaccard_gocat, gene_go_list = leafc2))
+colnames(leafc2) <- rownames(leafc2)
+
+leafc2_binar <- simplifyEnrichment::binary_cut(leafc2)
+
+Heatmap(leafc2)
+```
+
+
+
+
+```
+
+
+# scratch
+
+#test cluster 1 Blue Light/ ABA
+
+```{r}
+rtcl1 <- unique(unlist(ORA_root_geno2[pathway %in% rnkRtBP[cluster==1, GO_ID][[1]], overlapGenes]))
+
+c1_hmdata <- hm_data(gene_ids = rtcl1, gfam = 'Blue light/ABA')
+hm_l2(list(c1_hmdata))
+
+apply(data.frame(cr[match(rtcl1, crv3.2), .(crv3.2, n=substring(ncbi,first = 5, last = 18), araport2, substring(cr, first = 17)) ]), MARGIN = 1, FUN = paste, collapse='/')
+
+# start by making a list of the genes that you find are important
+rtcl1_smoking <- c('Tc01cons_g001430', # histidine kinase,
+                   'Tc01cons_g032920', # PYL,
+                   'Tc03cons_g019800', # hughly induced pp2c,
+                   'Tc04cons_g021040', # nced 6,
+                   'Tc04cons_g027880', # late embruogenesis abundant,
+                   'Tc06cons_g005850', # Probable carotenoid cleavage dioxygenase 4, chloroplastic,
+                   'Tc06cons_g012450', # Protein phosphatase 2C 16,
+                   "Tc07cons_g013740", # 9-cis-epoxycarotenoid dioxygenase NCED1, chloroplastic"                                             
+                   'Tc08cons_g000500', # AT1G45249.9/ ABSCISIC ACID-INSENSITIVE 5-like protein 5
+                   'Tc09cons_g003290', # Potassium channel KAT3"
+                   'Tc09cons_g010520', # Potassium channel AKT1
+                   'Tc09cons_g026690', # E3 ubiquitin-protein ligase PUB23"
+                   'Tc09cons_g030650', # Probable protein phosphatase 2C 24"                                                                 
+                   'Tc09cons_g030970', # Abscisic acid 8'-hydroxylase 2"                                                                     
+                   'Tc10cons_g004570', # Aquaporin TIP1-3"
+                   'Tc03cons_g027100', # Probable aquaporin PIP1-4
+                   'Tc06cons_g011930', # Abscisic acid receptor PYL2
+                   'Tc02cons_g009110', # Abscisic acid 8'-hydroxylase 4
+                   'Tc03cons_g030380', # Abscisic acid 8'-hydroxylase 1
+                   'Tc06cons_g002070', # Potassium channel SKOR
+                   'Tc02cons_g031060', # Purple acid phosphatase 3
+                   'Tc01cons_g004960', # Zeaxanthin epoxidase, chloroplastic
+                   'Tc02cons_g009170', # ABSCISIC ACID-INSENSITIVE 5-like protein 6
+                   'Tc09cons_g008850', # Putative Protein phosphatase 2C 56"                                                                 
+                   'Tc09cons_g013070', # Probable protein phosphatase 2C 22
+                   'Tc09cons_g017880', # Calcium-transporting ATPase 10, plasma membrane-type"
+                   'Tc09cons_g027550', # Transcription factor DIVARICATA"                                                                    
+                   'Tc09cons_g031860', # Aquaporin TIP1-3"                                                                                   
+                   'Tc10cons_g000550', # Xanthoxin dehydrogenase"                                                                            
+                   'Tc10cons_g018410', # Autophagy-related protein 18c"
+                   'Tc06cons_g011080', # Putative Acid phosphatase 1
+                   'Tc03cons_g006010', # Purple acid phosphatase 3"
+                   'Tc06cons_g022490', # E3 ubiquitin-protein ligase UPL5"                                                                   
+                   'Tc05cons_g010050', # Putative E3 ubiquitin-protein ligase PUB24
+                   'Tc10cons_g000840', # Abscisic acid receptor PYL4
+                   'Tc05cons_g031080', # Respiratory burst oxidase homolog protein B
+                   'Tc06cons_g011080', # Putative Acid phosphatase 1
+                   'Tc08cons_g002150', # Respiratory burst oxidase homolog protein D
+                   'Tc03cons_g001070', #/XM_018118204.1/AT5G62790.1/ 1-deoxy-D-xylulose 5-phosphate reductoisomerase, chloroplastic
+                   'Tc06cons_g022490', #/XM_007026208.2/NA/ E3 ubiquitin-protein ligase UPL5
+                   'Tc09cons_g008510', #/XM_007012916.2/NA/ Acid phosphatase 1
+                   'Tc01cons_g004960', #/XM_007047198.2/NA/ Zeaxanthin epoxidase, chloroplastic
+                   'Tc02cons_g008550', #/XM_007042282.2/AT4G33950.1/ Serine/threonine-protein kinase SRK2E                                           
+                   'Tc02cons_g009170', #/XM_007042378.2/NA/ ABSCISIC ACID-INSENSITIVE 5-like protein 6
+                   'Tc09cons_g008850', #/XM_007012985.2/NA/ Putative Protein phosphatase 2C 56                                                       
+                   'Tc09cons_g013070', #/XM_007013724.2/NA/ Probable protein phosphatase 2C 22  
+                   'Tc09cons_g017880', #/XM_018127328.1/AT4G29900.2/ Calcium-transporting ATPase 10, plasma membrane-type                           
+                   'Tc09cons_g031860', #/XM_007016465.2/NA/ Aquaporin TIP1-3                                                                        
+                   'Tc10cons_g000550', #/XM_007008749.2/NA/ Xanthoxin dehydrogenase                                                                  
+                   'Tc10cons_g018410', #/XM_007011343.2/NA/ Autophagy-related protein 18c
+                   'Tc03cons_g028050', #/XM_007040383.2/NA/ Protein SPA1-RELATED 2
+                   'Tc01cons_g013300', #/XM_007048631.2/NA/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 10
+                   'Tc07cons_g008230', #/XM_018124709.1/NA/ Protein SPA1-RELATED 3
+                   'Tc01cons_g013300', #/XM_007048631.2/NA/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 10
+                   'Tc01cons_g024740', #/XM_018121329.1/NA/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 3
+                   'Tc04cons_g025130', #/XM_018119463.1/AT5G28490.1/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 6
+                   'Tc04cons_g025130', #/XM_018119463.1/AT5G28490.1/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 6
+                   'Tc10cons_g012650', #/XM_018128552.1/NA/ Protein LIGHT-DEPENDENT SHORT HYPOCOTYLS 5
+                   'Tc03cons_g006010', #/XM_007036902.2/NA/ Purple acid phosphatase 3
+                   'Tc03cons_g022620', #/XM_007039438.2/NA/ Abscisic acid receptor PYR1
+                   'Tc01cons_g008160', #/XM_018113897.1/NA/ Putative E3 ubiquitin-protein ligase ATL6
+                   'Tc05cons_g003600', #/XM_007026980.2/NA/ Putative E3 ubiquitin-protein ligase XBAT31
+                   'Tc05cons_g010050') #/XM_018121248.1/NA/ Putative E3 ubiquitin-protein ligase PUB24
+
+rtcl1_hmd <- hm_data(rtcl1_smoking, 'none')
+
+rtcl1pt[match(rtcl1_smoking, rtcl1pt$Gene.ID),  .(Gene.ID, Orthogroup.ID)]
+
+```
