@@ -1,0 +1,30 @@
+Doc 18 2020 Your username
+
+Tray  Plant  Treatment ppm    Tray  Plant  Treatment ppm
+H     48     20                D     21     10
+H     47     0                 D     20     0
+H     46     10                D     19     20
+H     45     20                C     18     0
+H     44     10                C     17     0
+H     43     0                 C     16     20
+H     42     20                C     15     10
+G     41     20                C     14     10
+G     40     10                C     13     20
+G     39     10                B     12     0
+G     38     0                 B     11     20
+G     37     0                 B     10     0
+F     36     0                 B     9      10
+F     35     20                B     8      0
+F     34     20                B     7      0
+F     33     0                 A     6      0
+F     32     10                A     5      20
+F     31     10                A     4      20
+F     30     20                A     3      0
+E     29     20                A     2      10
+E     28     10                A     1      0
+E     27     10                
+E     26     0                 
+E     25     0                 
+D     24     10                
+D     23     0                 
+D     22     0                 
