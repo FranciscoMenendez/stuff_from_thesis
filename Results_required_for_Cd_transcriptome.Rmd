@@ -1,0 +1,842 @@
+---
+title: "Results_Cd_transcriptome_july2023"
+author: "francisco.menendez.burns"
+date: "2023-07-07"
+output: html_document
+---
+
+
+##Load Data and Packages
+
+```{r}
+
+library(ape)
+library(DESeq2)
+library(plyr)
+library(reshape2)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(data.table)
+
+source('filtered_results.R')
+source('dds2df.r')
+source("baseMean_add2.r")
+source('make_vol.r')
+source('make_heatmap.r')
+source('heatmap_FM.R')
+
+```
+
+###Data preparation
+
+```{r}
+#LOAD COMBINED COUNT DATA FRPREAPRED IN transcriptomeDESeq_le_new.R
+
+load('counts_le_new.txt') #load combined names data
+load('expsum_le_new')
+
+row.names(counts) <- counts$Geneid
+counts <- counts[, c(-1,-grep('T8', colnames(counts)))]
+
+expsum_root1 <- expsum_root[expsum_root$tissue=='root', ]
+count_root1 <- count_root[, colnames(count_root) %in% expsum_root1$library]
+
+#PREPARE THE REFERENCE ANNOTATION TABLE (CR) WITH RBBH RESULTS 
+
+ideq <- read.table('rbbh_criollov3', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen')) #criollov3 onto criollov2
+
+ideq2 <- read.table('rbbh_CrV2onCrV3', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen')) #criollov2 onto criollov3
+
+criollannotcds <- read.FASTA('Theobroma_cacaoV2_annot_cds.fna')
+criollannotgen <- read.FASTA('Theobroma_cacaoV2_annot_gene.fna')
+#criollannot <- c(labels(criollannotcds), labels(criollannotgen)) # full list of CriolloV2 annotations
+criollannot <- c(labels(criollannotcds)) # full list of CriolloV2 annotations
+rm(criollannotcds)
+rm(criollannotgen)
+cr=unlist(criollannot, recursive = F)
+cr <- data.frame(cr=cr, lookup = sapply(cr, function(x) strsplit(x, ' ')[[1]][1]))
+
+matched_annot <- ideq[match(cr$lookup , ideq$target), c("target", 'query')] #in 
+#matched_annot <- matched_annot[complete.cases(matched_annot),]
+cr$crv3 <- matched_annot$query
+
+matched_annot2 <- ideq2[match(cr$lookup , ideq2$query), c("target", 'query')] #in 
+cr$crv3.2 <- matched_annot2$target
+
+cr[, 3:4] <- apply(cr[, 3:4],2, function(x) sub('_t', '_g', x ))
+cr$crv3.2 <- sapply(cr$crv3.2, function(x) strsplit(x, split = '\\.')[[1]][1])
+cr$crv3 <- sapply(cr$crv3, function(x) strsplit(x, split = '\\.')[[1]][1])
+
+araport <- read.table('rbbh_araport11_crv2', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+cr$araport <- araport[match(cr$lookup, araport$target), c('query')]
+
+#Araport 2 (Tc onto araport11 e values 0.01)
+
+araport2 <- read.table('rbbh_tc_araport11_e4', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+cr$araport2 <- araport2[match(cr$lookup, araport2$query), c('target')]
+
+#araport 3 is done with an evalue cut off of 0.05
+
+araport3 <- read.table('rbbh_araport11_tc_5e2', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+cr$araport3 <- araport3[match(cr$lookup, araport3$target), c('query')]
+
+# araport4 is the same as 3 but with the quary and target reversed
+
+araport4 <- read.table('rbbh_tc_araport11_5e2', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+
+
+ncbi <- read.table('rbbh_NCBI_TcB97v3_cds', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+ncbi$tc_gen <- gsub(pattern = '_t', replacement = "_g", x = ncbi$target)
+
+ncbi$tc_gen <- substring(ncbi$tc_gen, first = 1, last = 16)
+
+cr$ncbi <- ncbi[match(cr$crv3.2, ncbi$tc_gen), c('query')]
+
+phytozome2 <- read.table('phytozome_TCB97.txt', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+phytozomeCr3 <- read.table('phytozome_TC_criolloV2.txt', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+phytozomeCr3_2 <- read.table('phytozome_criolloV2_TCphyto.txt', col.names = c('query', 'target', 'id', 'alnlen', 'evalue', 'bitscore', 'qstart...qend', 'tstart...tend', 'qlen', 'tlen'))
+
+cr$phytozome <- phytozomeCr3[match(cr$lookup, phytozomeCr3$target), c('query')]
+
+cr$phytozome2 <- phytozomeCr3_2[match(cr$lookup, phytozomeCr3_2$query), c('target')]
+
+cr <- data.table(cr)
+
+save(cr, file='cr.rda')
+
+rm(ideq, ideq2, phytozomeCr3, phytozome2, phytozomeCr3_2, araport, araport2, araport3, araport4, matched_annot, matched_annot2, ncbi)
+
+rm(mm_leaf, mm_rootnl)
+
+#print chip format for gsea
+
+write.table(cr[!is.na(cr$crv3), c('crv3.2', 'lookup', 'cr')], file = 'b97.chip', append = F, quote = F, sep = '\t', col.names = c('Probe Set ID', 'Gene Symbol', 'Gene Title'), row.names = F)
+
+# READ SECOND TCB97 ANNOTATION 
+
+goterm <- read.table('TC_B97_consensusV2_rev2021_annotated.gff3', skip = 2, fill = T, stringsAsFactors = F)
+goterm <- goterm[grep('gene', goterm$V3), ]
+goterm$id <- sapply(strsplit(goterm$V9, split = ';') , function(x) x[1])
+goterm$id <- sapply(strsplit(goterm$id, split = '=') , function(x) x[2])
+goterm$annot <- apply(goterm, 1, function(x) paste(x[9:length(x)], collapse = ' '))
+
+```
+
+## Make DESeq Data sets
+
+```{r}
+
+################################################################# leaf
+
+dd_leaf.le <- DESeq2::DESeqDataSetFromMatrix(count_leaf, expsum_leaf,
+                                             design = ~ genotype + time + block + genotype:time + block:genotype)
+
+keep <- rowSums(counts(dd_leaf.le)) >= 10 #Remove genes with less than 10 counts across all libraries
+dd_leaf.le <- dd_leaf.le[keep,]
+
+
+# WITHOUT GENOTYPE
+
+dd_leaf_nogeno.le <- DESeq2::DESeqDataSetFromMatrix(count_leaf, expsum_leaf,
+                                                    design = ~ time + block)
+keep <- rowSums(counts(dd_leaf_nogeno.le)) >= 10 #Remove genes with less than 10 counts across all libraries
+dd_leaf_nogeno.le <- dd_leaf_nogeno.le[keep,]
+
+#save(list=c('dd_leaf.le', 'dd_leaf_nogeno.le'), file = 'dd_leaf_LE_NEW.rda')
+
+################################################################ Roots
+dd_root.le <- DESeq2::DESeqDataSetFromMatrix(count_root, expsum_root, #root and leaf 
+                                             design = ~ tissue + genotype + time + block + genotype:tissue + genotype:time + genotype:block) #root and leaves 0 and 48 h
+
+dd_root.le$tissue <- relevel(dd_root.le$tissue, ref = c('root'))
+
+keep <- rowSums(counts(dd_root.le)) >= 10 #Remove genes with less than 10 counts across all libraries
+dd_root.le <- dd_root.le[keep,]
+
+
+# WITHOUT GENOTYPE
+
+dd_root_nogeno.le <- DESeq2::DESeqDataSetFromMatrix(count_root, expsum_root, #root no geno
+                                                    design = ~ time + tissue+ block + time:tissue) 
+dd_root_nogeno.le$tissue <- relevel(dd_root_nogeno.le$tissue, ref = c('root'))
+
+
+expsum <- data.table(expsum)
+
+expsum <- data.table(expsum)
+expsum_root1 <- expsum[tissue=='root',]
+count_root1 <- counts[, colnames(counts) %in% expsum_root1$library]
+
+# ROOTS NO LEAF (NL)
+
+dd_root_nl.le <- DESeq2::DESeqDataSetFromMatrix(count_root1, expsum_root1, #root no leaf
+                                             design = ~ genotype + time + block + genotype:time + genotype:block)
+
+keep <- rowSums(counts(dd_root_nl.le)) >= 10
+dd_root_nl.le <- dd_root_nl.le[keep, ]
+
+################################################################ Both
+
+dd_all.le <- DESeq2::DESeqDataSetFromMatrix(counts[, colnames(counts) %in% expsum$library], expsum, #root and leaf 
+                                             design = ~ tissue + genotype + time + block + genotype:tissue + genotype:time + genotype:block) #root and leaves 0 and 48 h
+
+dd_all.le$tissue <- relevel(dd_all.le$tissue, ref = c('root'))
+dd_all.le$ti <- relevel(dd_all.le$time, ref = c('0'))
+dd_all.le$genotype <- relevel(dd_all.le$genotype, ref = c('PA121'))
+
+
+save(dd_root_nl.le, dd_leaf.le, dd_all.le, file = 'dd_objects.rda')
+
+# Combined for base mean calculations
+
+expsum$general <- paste(expsum$genotype, expsum$time, expsum$tissue, sep='_')
+
+################################################################ General
+
+dd_gen.le <- DESeq2::DESeqDataSetFromMatrix(counts[, colnames(counts) %in% expsum$library], expsum, #root and leaf 
+                                             design = ~ general) #root and leaves 0 and 48 h
+
+dd_gen.le$general <- relevel(dd_gen.le$general, ref = c('PA121_0_leaf'))
+
+#calculate baseMeans by genral levels
+dd_gen.le <- estimateSizeFactors(dd_gen.le)
+baseMeanPerLvl <- sapply( levels(dd_gen.le$general), function(lvl) rowMeans( counts(dd_gen.le,normalized=TRUE)[,dd_gen.le$general == lvl, drop=F] ) )
+
+test <- df_res$root_48h_0h
+
+test$baseMeanA_root0h <- baseMeanPerLvl[match(test$geneid, rownames(baseMeanPerLvl)), "TSH660_0_root"]
+test$baseMeanA_root48h <- baseMeanPerLvl[match(test$geneid, rownames(baseMeanPerLvl)), "TSH660_48_root"]
+
+test[1:10, .(geneid, baseMean, baseMeanA, baseMeanB, baseMeanA_root0h, baseMeanA_root48h, log2FoldChange, l2fb=log2(baseMeanA_root48h/baseMeanA_root0h), baseMean2=rowMeans(x = data.table(baseMeanA_root48h, baseMeanA_root0h)))]
+
+test2 <- df_res$leaf_48h_0h
+
+test2$baseMeanA_leaf0h <- rowMeans(baseMeanPerLvl[match(test2$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_leaf", "PA121_0_leaf")])
+test2$baseMeanA_leaf48h <- rowMeans(baseMeanPerLvl[match(test2$geneid, rownames(baseMeanPerLvl)), c("TSH660_48_leaf", "PA121_48_leaf")])
+
+test2[1:10, .(geneid, baseMean, baseMeanA, baseMeanB, baseMeanA_leaf0h, baseMeanA_leaf48h, log2FoldChange, l2fb=log2(baseMeanA_leaf48h/baseMeanA_leaf0h), baseMean2=rowMeans(x = data.table(baseMeanA_leaf48h, baseMeanA_leaf0h)))]
+
+baseMeans <- data.table(baseMeanPerLvl)
+baseMeans$geneid <- rownames(baseMeanPerLvl)
+```
+
+
+## Make Model Matrices 
+
+```{r}
+
+mm_leaf <- as.data.frame(model.matrix(object = design(dd_leaf.le), colData(dd_leaf.le)))
+rownames(mm_leaf) <- dd_leaf.le$library
+write.table(mm_leaf, file = 'model_matrix_leaf.txt', append = F, sep = '\t', row.names = T, quote = F)
+#mm_leaf
+
+mm_root <- as.data.frame(model.matrix(object = design(dd_root.le), colData(dd_root.le)))
+rownames(mm_root) <- dd_root.le$library
+write.table(mm_root, file = 'model_matrix_root_leaf.txt', append = F, sep = '\t', row.names = T, quote = F)
+#mm_root
+
+mm_rootnl <- as.data.frame(model.matrix(object = design(dd_root_nl.le), colData(dd_root_nl.le)))
+rownames(mm_rootnl) <- dd_root_nl.le$library
+write.table(mm_rootnl, file = 'model_matrix_root.txt', append = F, sep = '\t', row.names = T, quote = F)
+#mm_rootnl
+
+
+```
+
+##Calculate numeric contrasts
+
+###leaves
+
+```{r}
+
+# COMPARISON NAMES FOR LEAVES
+
+leaf_geno_comparison_names <- c('leaf_pa121_24h_0h', 'leaf_pa121_48h_0h', 'leaf_tsh660_24h_0h', 'leaf_tsh660_48h_0h',
+                  'leaf_pa121_tsh660_0h_0h', 'leaf_pa121_tsh660_24h_24h', 'leaf_pa121_tsh660_48h_48h', 'leaf_pa121_cd_no_cd',
+                  'leaf_tsh660_cd_no_cd', 'leaf_cd_no_cd', 'leaf_24h_0h', 'leaf_48h_0h', 'leaf_tsh660.24h', 'leaf_tsh660.48h')
+
+
+# CALCULATE THE CONTRAST USING THE COLUMN MEANS OF THE MODEL MATRIX. INDEX WHCH LIBRARIES ARE USED 
+
+leaf_PA121_0 <- colMeans(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==0,])
+index_leaf_PA121_0 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==0,]))
+                              
+leaf_PA121_24 <- colMeans(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==24,])
+index_leaf_PA121_24 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==24,]))
+
+leaf_PA121_48 <- colMeans(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==48,])
+index_leaf_PA121_48 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='PA121' & dd_leaf.le$time==48,]))
+
+leaf_TSH660_0 <- colMeans(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==0,])
+index_leaf_TSH660_0 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==0,]))
+
+leaf_TSH660_24 <- colMeans(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==24,])
+index_leaf_TSH660_24 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==24,]))
+
+leaf_TSH660_48 <- colMeans(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==48,])
+index_leaf_TSH660_48 <- which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$genotype=='TSH660' & dd_leaf.le$time==48,]))
+
+leaf_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time !='0' & dd_leaf.le$tissue=='leaf', ])
+index_leaf_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time !='0', ]))
+
+leaf_PA121_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time !='0' & dd_leaf.le$tissue=='leaf' & dd_leaf.le$genotype=='PA121', ])
+index_leaf_PA121_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time !='0' & dd_leaf.le$genotype=='PA121', ]))
+
+leaf_TSH660_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time !='0' & dd_leaf.le$tissue=='leaf' & dd_leaf.le$genotype=='TSH660', ])
+index_leaf_TSH660_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time !='0' & dd_leaf.le$genotype=='TSH660', ]))
+
+leaf_no_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$tissue=='leaf', ])
+index_leaf_no_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$tissue=='leaf', ]))
+
+leaf_PA121_no_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$genotype=='PA121', ])
+index_leaf_PA121_no_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$genotype=='PA121', ]))
+
+leaf_TSH660_no_cd_trt <- colMeans(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$genotype=='TSH660', ])
+index_leaf_TSH660_no_cd_trt <-  which(dd_leaf.le$library %in% 
+                              rownames(mm_leaf[dd_leaf.le$time =='0' & dd_leaf.le$genotype=='TSH660', ]))
+
+leaf_24h <- colMeans(mm_leaf[dd_leaf.le$time==24, ])
+index_leaf_24 <- which(dd_leaf.le$library %in% 
+                      rownames(mm_leaf[dd_leaf.le$time==24, ]))
+
+leaf_48h <- colMeans(mm_leaf[dd_leaf.le$time==48, ])
+index_leaf_48 <- which(dd_leaf.le$library %in% 
+                         rownames(mm_leaf[dd_leaf.le$time==48, ]))
+
+# SUBSTRACT TO CREATE CONTRAST 
+
+leaf_pa121_24h_0h <- leaf_PA121_24 - leaf_PA121_0
+leaf_pa121_48h_0h <- leaf_PA121_48 - leaf_PA121_0
+leaf_tsh660_24h_0h <- leaf_TSH660_24- leaf_TSH660_0
+leaf_tsh660_48h_0h <- leaf_TSH660_48- leaf_TSH660_0
+leaf_pa121_tsh660_0h_0h <- leaf_PA121_0 - leaf_TSH660_0 
+leaf_pa121_tsh660_24h_24h <- leaf_PA121_24 - leaf_TSH660_24 
+leaf_pa121_tsh660_48h_48h <- leaf_PA121_48 - leaf_TSH660_48
+leaf_pa121_cd_no_cd <- leaf_PA121_cd_trt-leaf_PA121_no_cd_trt
+leaf_tsh660_cd_no_cd <- leaf_TSH660_cd_trt-leaf_TSH660_no_cd_trt
+leaf_cd_no_cd <- leaf_cd_trt-leaf_no_cd_trt
+leaf_24h_0h <- leaf_24h-leaf_no_cd_trt
+leaf_48h_0h <- leaf_48h-leaf_no_cd_trt
+
+rm(leaf_PA121_24, leaf_PA121_0, leaf_PA121_48, leaf_TSH660_24, leaf_TSH660_0, leaf_TSH660_48, leaf_PA121_cd_trt, leaf_PA121_no_cd_trt, leaf_TSH660_cd_trt, leaf_TSH660_no_cd_trt, leaf_cd_trt, leaf_no_cd_trt, leaf_24h, leaf_48h)
+
+leaf_geno_contrasts_names <- list(leaf_pa121_24h_0h, leaf_pa121_48h_0h,
+                             leaf_tsh660_24h_0h, leaf_tsh660_48h_0h,
+                             leaf_pa121_tsh660_0h_0h, leaf_pa121_tsh660_24h_24h,
+                             leaf_pa121_tsh660_48h_48h, leaf_pa121_cd_no_cd, leaf_tsh660_cd_no_cd, leaf_cd_no_cd, 
+                             leaf_24h_0h, leaf_48h_0h, 'genotypeTSH660.time24',
+                             'genotypeTSH660.time48')
+
+rm(leaf_pa121_24h_0h, leaf_pa121_48h_0h, leaf_tsh660_24h_0h, leaf_tsh660_48h_0h, leaf_pa121_tsh660_0h_0h, leaf_pa121_tsh660_24h_24h, leaf_pa121_tsh660_48h_48h, leaf_pa121_cd_no_cd, leaf_tsh660_cd_no_cd, leaf_48h_0h, leaf_cd_no_cd, leaf_24h_0h)
+
+leaf_contrast_supp <- do.call(rbind, leaf_geno_contrasts_names[1:12])
+rownames(leaf_contrast_supp) <- c('leaf_pa121_24h_0h', 'leaf_pa121_48h_0h', 'leaf_tsh660_24h_0h', 'leaf_tsh660_48h_0h', 'leaf_pa121_tsh660_0h_0h', 'leaf_pa121_tsh660_24h_24h', 'leaf_pa121_tsh660_48h_48h', 'leaf_pa121_cd_no_cd', 'leaf_tsh660_cd_no_cd', 'leaf_48h_0h', 'leaf_cd_no_cd', 'leaf_24h_0h')
+write.table(leaf_contrast_supp, file = 'leaf_contrast_sup.txt', append = F, quote = F, sep = '\t', row.names = T, col.names = T)
+
+index_leaf_geno <- list(c(index_leaf_PA121_24, index_leaf_PA121_0), 
+                   c(index_leaf_PA121_48, index_leaf_PA121_0), 
+                   c(index_leaf_TSH660_24, index_leaf_TSH660_0),
+                   c(index_leaf_TSH660_48, index_leaf_TSH660_0),
+                   c(index_leaf_PA121_0, index_leaf_TSH660_0), 
+                   c(index_leaf_PA121_24, index_leaf_TSH660_24), 
+                   c(index_leaf_PA121_48, index_leaf_TSH660_48),
+                   c(index_leaf_PA121_cd_trt, index_leaf_PA121_no_cd_trt),
+                   c(index_leaf_TSH660_cd_trt, index_leaf_TSH660_no_cd_trt),
+                   c(index_leaf_cd_trt, index_leaf_no_cd_trt),
+                   c(index_leaf_24, index_leaf_no_cd_trt),
+                   c(index_leaf_48, index_leaf_no_cd_trt),
+                   13:15, 16:18)
+
+rm(index_leaf_PA121_24, index_leaf_PA121_0, index_leaf_PA121_48, index_leaf_TSH660_24, index_leaf_TSH660_0, index_leaf_TSH660_48, index_leaf_PA121_cd_trt, index_leaf_PA121_no_cd_trt, index_leaf_TSH660_cd_trt, index_leaf_TSH660_no_cd_trt, index_leaf_cd_trt, index_leaf_no_cd_trt, index_leaf_24, index_leaf_48)
+
+names(index_leaf_geno) <- leaf_geno_comparison_names
+
+# PREPARE A BOOLEAN VECTOR FOR THE filtered_results.r FUNCTION
+
+ncl <- c(rep(T, times=length(leaf_geno_comparison_names)-2), F, F) #names contrast leaf
+
+# CALCULATE THE RESULTS USING FILTERED RESUTLTS
+
+res_leaf_geno <- mapply(function(x,y,z) filtered_results(dds = dd_leaf.le,
+                                        name_contrast = x,
+                                        lib_index = y,
+                                        contr = z), leaf_geno_contrasts_names, index_leaf_geno, ncl)
+
+names(res_leaf_geno) <- leaf_geno_comparison_names
+
+dir.create('res_leaf')
+dir.create('res_leaf/res_leaf_volcano') # VOLCANO PLOTS SAVED HERE
+
+mapply(function(res, res_name, out, file_name) make.vol(res, res_name,
+                                                        out, file_path='res_leaf/res_leaf_volcano/',
+                                                        file_name),
+       res_leaf_geno, leaf_geno_comparison_names, T, paste(leaf_geno_comparison_names, '_volcano', sep='')
+)
+
+
+cr <- as.data.frame(cr)
+
+df_leaf_geno <- mapply(FUN = function(res, name) dds2df(res, name), res_leaf_geno, leaf_geno_comparison_names, SIMPLIFY = F)
+
+df_leaf_geno <- lapply(df_leaf_geno[-c(8,9)], function(x) {
+  x$annot2 <- goterm[match(x$geneid, goterm$id), 'annot']
+  return(x)
+  }
+  ) 
+
+df_leaf_geno <- mapply(function(res, index) baseMean_add(res, des=dd_leaf.le, index), res = df_leaf_geno, index = index_leaf_geno[-c(8,9)], SIMPLIFY = F)
+
+#write, normalized res for gsea software
+
+#a <- baseMean_add(res = df_leaf_geno$leaf_pa121_cd_no_cd,
+ #            des = dd_leaf.le, uneq = T,
+  #           index = index_leaf_geno$leaf_pa121_cd_no_cd,
+   #          index_a = index_leaf_geno[['leaf_pa121_24h_0h']][9:7],
+    #         index_b = index_leaf_geno[['leaf_pa121_24h_0h']][1:6])
+
+#b <- baseMean_add(res = df_leaf_geno$leaf_tsh660_cd_no_cd,
+ #            des = dd_leaf.le, uneq = T,
+  #           index = index_leaf_geno$leaf_tsh660_cd_no_cd,
+   #          index_a = index_leaf_geno[['leaf_tsh660_cd_no_cd']][9:7],
+    #         index_b = index_leaf_geno[['leaf_tsh660_cd_no_cd']][1:6])
+
+dir.create('res_leaf/res_leaf_tables')
+dir.create('res_leaf/GOTermE')
+
+mapply(function(df, file_name) write.table(df, file_name, append = F, quote = F, sep = '\t', row.names = F), df_leaf_geno, paste('res_leaf/res_leaf_tables/', leaf_geno_comparison_names, '_results_table.txt', sep=''), SIMPLIFY = F)
+
+mapply(function(df, file_name) write.table(df[df$padj<0.05 & df$log2FoldChange<0,'geneid'], file = paste('res_leaf/GOTermE/', file_name, '_downregulated', sep=''), append = F, quote = F, row.names = F, col.names = F), df=df_leaf_geno, file_name=leaf_geno_comparison_names)
+
+
+write_go_en <- function(df, file_name, pvalue=0.05, directory,
+                        make_reference=F, obj, expression_value=0,
+                        index_rs=1:ncol(df), rs_fn='refernce_set.txt'){
+  upreg <- df[df$padj<pvalue & df$log2FoldChange>0,'geneid']
+  downreg <- df[df$padj<pvalue & df$log2FoldChange<0,'geneid']
+  write.table(x = upreg[!is.na(upreg)], file = paste(directory, file_name, '_upregulated.txt', sep=''),
+              append = F, quote = F, row.names = F, col.names = F)
+  write.table(x = downreg[!is.na(downreg)], file = paste(directory, file_name, '_downregulated.txt', sep=''),
+              append = F, quote = F, row.names = F, col.names = F)
+  require(DESeq2)
+  if (make_reference==T){
+    obj <- estimateSizeFactors(obj)
+    o <- counts(obj, normalized=T)
+    nrow(o)
+    sum(rowMeans(o[,index])>expression_value)
+    o <- o[rowMeans(o[,index])>expression_value,]
+    write.table(x = rownames(o), file = paste(directory, rs_fn, sep='\n'),
+                append = F, quote = F, row.names = F, col.names = F) 
+    
+  }
+  
+}
+
+write.gsealist <- function(df, file_name) {
+  write.table(df[order(df$log2FoldChange, decreasing = T), c('geneid', 'log2FoldChange')], file = file_name, append = F, quote = F, sep = '\t', row.names = F, col.names = F)
+}
+
+if('GSEA_lists' %in% dir('res_leaf/')) dir.create('res_leaf/GSEA_lists/')
+mapply(function(df, file_name) write.gsealist(df, file_name),
+       df=df_leaf_geno,
+       file_name=paste('res_leaf/GSEA_lists/', leaf_geno_comparison_names, '_gsea_list.txt', sep = ''))
+
+
+mapply(function(df, file_name) write_go_en(df, file_name, directory = 'res_leaf/GOTermE/', obj = dd_leaf.le), df=df_leaf_geno, file_name=leaf_geno_comparison_names)
+
+
+################################################################ Reference set for GO enrichment
+print_reference_set <- function(dd, expression_value, index, file_name) {
+  dd <- estimateSizeFactors(dd)
+  cn <- counts(dd, normalized=T)
+  print(nrow(cn))
+  print(nrow(cn[which(rowMeans(cn, na.rm = T)>expression_value),]))
+  write.table(rownames(cn[which(rowMeans(cn, na.rm = T)>expression_value),]),file = file_name, sep = '\n', quote = F,row.names = F, col.names = F) 
+  
+}
+
+print_reference_set(dd = dd_leaf.le, index = c(index_leaf_no_cd_trt, index_leaf_0, index_leaf_48) , expression_value = 0.1, file_name = 'res_leaf/GOTermE/leaf_reference_set.txt')
+
+print_reference_set(dd = dd_root.le, index = c(index_root_24, index_leaf_48) , expression_value = 0.1, file_name = 'res_root/GoTermE/root_reference_set.txt')
+
+```
+
+
+
+### roots
+
+```{r}
+root_geno_comparison_names <- c('root_pa121_tsh660_0h_0h', 'root_pa121_tsh660_48h_48h', 'root_pa121_48h_0h', 'root_tsh660_48h_0h','root_48h_0h')
+
+
+root_TSH660_0h <- colMeans(mm_rootnl[dd_root_nl.le$genotype=='TSH660' & dd_root_nl.le$time==0, ])
+index_root_TSH660_0h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$genotype=='TSH660' & dd_root_nl.le$time==0, ]))
+
+root_TSH660_48h <- colMeans(mm_rootnl[dd_root_nl.le$genotype=='TSH660' & dd_root_nl.le$time==48, ])
+index_root_TSH660_48h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$genotype=='TSH660' & dd_root_nl.le$time==48, ]))
+
+
+root_PA121_0h <- colMeans(mm_rootnl[dd_root_nl.le$genotype=='PA121' & dd_root_nl.le$time==0, ])
+index_root_PA121_0h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$genotype=='PA121' & dd_root_nl.le$time==0, ]))
+
+root_PA121_48h <- colMeans(mm_rootnl[dd_root_nl.le$genotype=='PA121' & dd_root_nl.le$time==48, ])
+index_root_PA121_48h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$genotype=='PA121' & dd_root_nl.le$time==48, ]))
+
+root_0h <-  colMeans(mm_rootnl[dd_root_nl.le$time==0, ])
+index_root_0h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$time==0, ]))
+
+root_48h <-  colMeans(mm_rootnl[dd_root_nl.le$time==48, ])
+index_root_48h <- which(dd_root_nl.le$library %in% rownames(mm_rootnl[dd_root_nl.le$time==48, ]))
+
+root_geno_contrast_names <- list(c(root_PA121_0h - root_TSH660_0h), 
+                                 c(root_PA121_48h - root_TSH660_48h),
+                                 c(root_PA121_48h - root_PA121_0h), 
+                                 c(root_TSH660_48h - root_TSH660_0h), 
+                                 c(root_48h - root_0h))
+
+rm(root_TSH660_0h, root_PA121_0h, root_PA121_48h, root_TSH660_48h, root_48h, root_0h)
+
+root_contrast_sup <- do.call(rbind, root_geno_contrast_names)
+rownames(root_contrast_sup) <- c('root_TSH660_PA121_0h_0h', 'root_TSH660_PA121_0h_0h', 'root_PA121_48h_0h', 'root_TSH660_48h_0h', 'root_48h_0h')
+write.table(root_contrast_sup, file = 'root_contrast_sup.txt', append = F, quote = F, sep = '\t', row.names = T, col.names = T)
+
+index_root_geno <- list(c(index_root_PA121_0h, index_root_TSH660_0h), 
+                        c(index_root_PA121_48h, index_root_TSH660_48h), 
+                        c(index_root_PA121_48h, index_root_PA121_0h), 
+                        c(index_root_TSH660_48h, index_root_TSH660_0h), 
+                        c(index_root_48h, index_root_0h))
+rm(index_root_PA121_0h, index_root_TSH660_0h, index_root_PA121_48h, index_root_TSH660_48h, index_root_48h, index_root_0h)
+
+
+names(index_root_geno) <- root_geno_comparison_names
+
+res_root_geno <- mapply(function(x,y) filtered_results(dds = dd_root_nl.le,
+                                        name_contrast = x,
+                                        lib_index = y,
+                                        contr = T), root_geno_contrast_names, index_root_geno)
+
+names(res_root_geno) <- root_geno_comparison_names
+
+lapply(res_root_geno, function(x) sum(x$padj<0.05, na.rm=T))
+
+df_root_geno <- mapply(FUN = function(res, name) dds2df(res, name), res_root_geno, root_geno_comparison_names, SIMPLIFY = F)
+
+df_root_geno <- lapply(df_root_geno, function(x) {
+  x$annot2 <- goterm[match(x$geneid, goterm$id), 'annot']
+  return(x)
+  }
+  )
+
+df_root_geno <- mapply(function(res, index) baseMean_add(res, des=dd_root_nl.le, index), df_root_geno, index_root_geno, SIMPLIFY = F)
+
+
+dir.create('res_root/')
+dir.create('res_root/res_root_volcano')
+dir.create('res_root/res_root_tables')
+dir.create('res_root/GoTermE')
+
+mapply(function(df, file_name) write.table(df, file_name, append = F, quote = F, sep = '\t', row.names = F), df_root_geno, paste('res_root/res_root_tables/', root_geno_comparison_names, '_results_table.txt', sep=''), SIMPLIFY = F)
+
+
+mapply(function(df, file_name) write_go_en(df, file_name, directory = 'res_root/GoTermE/', obj = dd_root_nl.le), df=df_root_geno, file_name=root_geno_comparison_names)
+
+mapply(function(res, res_name, out, file_name) make.vol(res, res_name,
+                                                        out, file_path='res_root/res_root_volcano/',
+                                                        file_name),
+        res_root_geno, root_geno_comparison_names, T, paste(root_geno_comparison_names, '_volcano', sep='')
+       )
+
+if(!('GSEA_lists' %in% dir('res_root/'))) dir.create('res_root/GSEA_lists/')
+
+mapply(function(df, file_name) write.gsealist(df, file_name),
+       df=df_leaf_geno,
+       file_name=paste('res_root/GSEA_lists/', root_geno_comparison_names, '_gsea_list.txt', sep = ''))
+
+
+#save results tables 
+save(df_leaf_geno, file = 'df_leaf_geno.rda')
+save(df_root_geno, file = 'df_root_geno.rda')
+```
+
+
+```{r}
+#PRINT OUT SUPPLEMENTARY TABLE
+
+df_res <- df_leaf_geno[c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h','leaf_pa121_48h_0h','leaf_tsh660_48h_0h','leaf_48h_0h','leaf_24h_0h', 'leaf_pa121_tsh660_0h_0h', 'leaf_pa121_tsh660_24h_24h','leaf_pa121_tsh660_48h_48h')]
+df_res <- append(df_res, df_root_geno[c('root_pa121_48h_0h','root_tsh660_48h_0h','root_pa121_tsh660_0h_0h','root_pa121_tsh660_48h_48h','root_48h_0h')]) #list of results data frames for the comparisons of interest
+
+df_res <- lapply(df_res, function(x) return(data.table(x)))
+
+## add orthogroups
+## Read thesuperrthgroups 
+
+rt48pt <- read.delim('plant_tribes_results/Rt48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+rt48pt <- rt48pt[,1:49]
+soprt <- rt48pt[, c(1:2, 40:49)]
+soprt <- data.table(soprt)
+mods <- colnames(soprt[,2:12])
+#soprt[ , (mods) := lapply(.SD, "^", 2), .SDcols = mods] 
+
+#soprt[ , lapply (.SD, function(x) length(unique(x))), .SDcols = mods]
+plot(x = 1:11, y = soprt[ , lapply (.SD, function(x) length(unique(x))), .SDcols = mods]) #sog 8 is the group that reaches the maxima 
+
+
+## ADD PLANT TRIBE ORTHOGROUP TO THE RESULTS TABLE
+
+orthosRt <- read.delim('plant_tribes_results/Rt48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+
+orthosRt <- orthosRt[, c(1:2,46,51)] # add SuperOrthogroup.3.5
+orthosRt$Gene.ID <- gsub(pattern = '_t', replacement = '_g', x = orthosRt$Gene.ID)
+orthosRt$Gene.ID <- substring(text = orthosRt$Gene.ID, first = 1, last = 16)
+orthosRt$cr <- cr[match(x = orthosRt$Gene.ID, table = crv3.2), cr]
+orthosRt <- orthosRt[, c(1, 2, 3, 5, 4)]
+orthosRt <- data.table(orthosRt)
+orthosRt <- orthosRt[order(Orthogroup.ID, decreasing = F)]
+#orthosRt$arath <- substring(apply(orthosRt, MARGIN = 1, FUN = function(x) names(sequence_list[paste('og_',trimws(x['Orthogroup.ID']), sep='')][[1]][1])), first = 18)
+
+
+df_res$root_48h_0h$orthogroup <- orthosRt[match(df_res$root_48h_0h$geneid, orthosRt$Gene.ID),Orthogroup.ID]
+df_res$root_48h_0h$superortho <- orthosRt[match(df_res$root_48h_0h$geneid, orthosRt$Gene.ID),SuperOrthogroup.3.5]
+
+# orthogroup match
+
+orthos_ids <- lapply(df_res[c("root_48h_0h", "root_pa121_48h_0h", 'root_tsh660_48h_0h')], function(x) return(orthosRt[match(x$geneid,orthosRt$Gene.ID), Orthogroup.ID]))
+
+#ncbi_ids <- lapply(ncbi_ids, function(x) substring(x, first = 5, last = 18))
+
+df_res[c("root_48h_0h", "root_pa121_48h_0h", 'root_tsh660_48h_0h')] <- mapply(function(df, ortho_col) {
+  df$orthogroup <- ortho_col
+  return(df)
+}, df_res[c("root_48h_0h", "root_pa121_48h_0h", 'root_tsh660_48h_0h')], orthos_ids, SIMPLIFY = F)
+
+## ADD PLANT TRIBE ORTHOGROUP TO THE RESULTS LEAF
+
+orthosLf <- read.delim('plant_tribes_results/Lf48h_0h/proteins.hmmscan.37Gv1.0.bestOrthos.summary')
+
+orthosLf <- orthosLf[, c(1:2,46,51)] # add SuperOrthogroup.3.5
+orthosLf$Gene.ID <- gsub(pattern = '_t', replacement = '_g', x = orthosLf$Gene.ID)
+orthosLf$Gene.ID <- substring(text = orthosLf$Gene.ID, first = 1, last = 16)
+orthosLf$cr <- cr[match(x = orthosLf$Gene.ID, table = crv3.2), cr]
+orthosLf <- orthosLf[, c(1, 2, 3, 5, 4)]
+orthosLf <- data.table(orthosLf)
+orthosLf <- orthosLf[order(Orthogroup.ID, decreasing = F)]
+
+orthos_ids <- lapply(df_res[c("leaf_48h_0h", "leaf_pa121_48h_0h", 'leaf_tsh660_48h_0h', "leaf_24h_0h", "leaf_pa121_24h_0h", 'leaf_tsh660_24h_0h')], function(x) return(orthosLf[match(x$geneid,orthosLf$Gene.ID), Orthogroup.ID]))
+
+df_res[c("leaf_48h_0h", "leaf_pa121_48h_0h", 'leaf_tsh660_48h_0h', "leaf_24h_0h", "leaf_pa121_24h_0h", 'leaf_tsh660_24h_0h')] <- mapply(function(df, ortho_col) {
+  df$orthogroup <- ortho_col
+  return(df)
+}, df_res[c("leaf_48h_0h", "leaf_pa121_48h_0h", 'leaf_tsh660_48h_0h', "leaf_24h_0h", "leaf_pa121_24h_0h", 'leaf_tsh660_24h_0h')], orthos_ids, SIMPLIFY = F)
+
+
+
+# Fix baseMean
+
+df_res$leaf_pa121_24h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_pa121_24h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_leaf")]
+df_res$leaf_pa121_24h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_pa121_24h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_24_leaf")]
+df_res$leaf_pa121_24h_0h$l2B_A <- log2(df_res$leaf_pa121_24h_0h$baseMeanB/df_res$leaf_pa121_24h_0h$baseMeanA)
+
+df_res$leaf_pa121_48h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_pa121_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_leaf")]
+df_res$leaf_pa121_48h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_pa121_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_48_leaf")]
+df_res$leaf_pa121_48h_0h$l2B_A <- log2(df_res$leaf_pa121_48h_0h$baseMeanB/df_res$leaf_pa121_48h_0h$baseMeanA)
+
+df_res$leaf_tsh660_24h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_tsh660_24h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_leaf")]
+df_res$leaf_tsh660_24h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_tsh660_24h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_24_leaf")]
+df_res$leaf_tsh660_24h_0h$l2B_A <- log2(df_res$leaf_tsh660_24h_0h$baseMeanB/df_res$leaf_tsh660_24h_0h$baseMeanA)
+
+df_res$leaf_tsh660_48h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_tsh660_48h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_leaf")]
+df_res$leaf_tsh660_48h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_tsh660_48h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_48_leaf")]
+df_res$leaf_tsh660_48h_0h$l2B_A <- log2(df_res$leaf_tsh660_48h_0h$baseMeanB/df_res$leaf_tsh660_48h_0h$baseMeanA)
+
+df_res$leaf_24h_0h$baseMeanA <- rowMeans(baseMeanPerLvl[match(df_res$leaf_24h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_leaf", "TSH660_0_leaf")])
+df_res$leaf_24h_0h$baseMeanB <- rowMeans(baseMeanPerLvl[match(df_res$leaf_24h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_24_leaf", "TSH660_24_leaf")])
+df_res$leaf_24h_0h$l2B_A <- log2(df_res$leaf_24h_0h$baseMeanB/df_res$leaf_24h_0h$baseMeanA)
+
+df_res$leaf_48h_0h$baseMeanA <- rowMeans(baseMeanPerLvl[match(df_res$leaf_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_leaf", "TSH660_0_leaf")])
+df_res$leaf_48h_0h$baseMeanB <- rowMeans(baseMeanPerLvl[match(df_res$leaf_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_48_leaf", "TSH660_48_leaf")])
+df_res$leaf_48h_0h$l2B_A <- log2(df_res$leaf_48h_0h$baseMeanB/df_res$leaf_48h_0h$baseMeanA)
+
+
+df_res$root_pa121_48h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$root_pa121_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_root")]
+df_res$root_pa121_48h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$root_pa121_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_48_root")]
+df_res$root_pa121_48h_0h$l2B_A <- log2(df_res$root_pa121_48h_0h$baseMeanB/df_res$root_pa121_48h_0h$baseMeanA)
+
+
+df_res$root_tsh660_48h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$root_tsh660_48h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_root")]
+df_res$root_tsh660_48h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$root_tsh660_48h_0$geneid, rownames(baseMeanPerLvl)), c("TSH660_48_root")]
+df_res$root_tsh660_48h_0h$l2B_A <- log2(df_res$root_tsh660_48h_0h$baseMeanB/df_res$root_tsh660_48h_0h$baseMeanA)
+
+df_res$root_48h_0h$baseMeanA <- rowMeans(baseMeanPerLvl[match(df_res$root_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_0_root", "TSH660_0_root")])
+df_res$root_48h_0h$baseMeanB <- rowMeans(baseMeanPerLvl[match(df_res$root_48h_0$geneid, rownames(baseMeanPerLvl)), c("PA121_48_root", "TSH660_48_root")])
+df_res$root_48h_0h$l2B_A <- log2(df_res$root_48h_0h$baseMeanB/df_res$root_48h_0h$baseMeanA)
+
+
+df_res$leaf_pa121_tsh660_0h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_0h_0h$geneid, rownames(baseMeanPerLvl)), c("PA121_0_leaf")]
+df_res$leaf_pa121_tsh660_0h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_0h_0h$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_leaf")]
+df_res$leaf_pa121_tsh660_0h_0h$l2B_A <- log2(df_res$leaf_pa121_tsh660_0h_0h$baseMeanB/df_res$leaf_pa121_tsh660_0h_0h$baseMeanA)
+
+df_res$leaf_pa121_tsh660_24h_24h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_24h_24h$geneid, rownames(baseMeanPerLvl)), c("PA121_24_leaf")]
+df_res$leaf_pa121_tsh660_24h_24h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_24h_24h$geneid, rownames(baseMeanPerLvl)), c("TSH660_24_leaf")]
+df_res$leaf_pa121_tsh660_24h_24h$l2B_A <- log2(df_res$leaf_pa121_tsh660_24h_24h$baseMeanB/df_res$leaf_pa121_tsh660_24h_24h$baseMeanA)
+  
+df_res$leaf_pa121_tsh660_48h_48h$baseMeanB <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_48h_48h$geneid, rownames(baseMeanPerLvl)), c("PA121_48_leaf")]
+df_res$leaf_pa121_tsh660_48h_48h$baseMeanA <- baseMeanPerLvl[match(df_res$leaf_pa121_tsh660_48h_48h$geneid, rownames(baseMeanPerLvl)), c("TSH660_48_leaf")]
+df_res$leaf_pa121_tsh660_48h_48h$l2B_A <- log2(df_res$leaf_pa121_tsh660_48h_48h$baseMeanB/df_res$leaf_pa121_tsh660_48h_48h$baseMeanA)
+
+df_res$root_pa121_tsh660_0h_0h$baseMeanB <- baseMeanPerLvl[match(df_res$root_pa121_tsh660_0h_0h$geneid, rownames(baseMeanPerLvl)), c("PA121_0_root")]
+df_res$root_pa121_tsh660_0h_0h$baseMeanA <- baseMeanPerLvl[match(df_res$root_pa121_tsh660_0h_0h$geneid, rownames(baseMeanPerLvl)), c("TSH660_0_root")]
+df_res$root_pa121_tsh660_0h_0h$l2B_A <- log2(df_res$root_pa121_tsh660_0h_0h$baseMeanB/df_res$root_pa121_tsh660_0h_0h$baseMeanA)
+
+df_res$root_pa121_tsh660_48h_48h$baseMeanB <- baseMeanPerLvl[match(df_res$root_pa121_tsh660_48h_48h$geneid, rownames(baseMeanPerLvl)), c("PA121_48_root")]
+df_res$root_pa121_tsh660_48h_48h$baseMeanA <- baseMeanPerLvl[match(df_res$root_pa121_tsh660_48h_48h$geneid, rownames(baseMeanPerLvl)), c("TSH660_48_root")]
+df_res$root_pa121_tsh660_48h_48h$l2B_A <- log2(df_res$root_pa121_tsh660_48h_48h$baseMeanB/df_res$root_pa121_tsh660_48h_48h$baseMeanA)
+
+setwd('../')
+
+# Same for leaves 
+## ADD PLANT TRIBE ORTHOGROUP TO THE RESULTS TABLE
+
+df_res$root_48h_0h$arath <- orthosRt[match(df_res$root_48h_0h$geneid, Gene.ID),arath]
+
+########################################### FOR ALL THE DEG LEAF
+
+df_res$leaf_48h_0h$arath <- orthosLf[match(df_res$leaf_48h_0h$geneid, orthosLf$Gene.ID),"arath"]
+
+
+#ncbi match
+ncbi_ids <- lapply(df_res, function(x) return(ncbi[match(x$geneid, ncbi$tc_gen), 'query']))
+
+ncbi_ids <- lapply(ncbi_ids, function(x) substring(x, first = 5, last = 18))
+
+df_res <- mapply(function(df, ncbi_col) {
+  df$ncbi <- ncbi_col
+  return(df)
+}, df_res, ncbi_ids, SIMPLIFY = F)
+
+save(df_res, file='df_res.rda')
+
+write.table(rbind.fill(df_res), file = 'supplementary_file3_DEG_results.txt', append = F, quote = F, sep = '\t', row.names = F, col.names = T)
+
+```
+
+Write gsea list again
+```{r}
+dir.create('gsea_list_2/')
+setwd('gsea_list_2/')
+lapply(df_res, function(x) write.gsealist(df = x[order(log2FoldChange, decreasing = T),], file_name = paste(x[1, comp], 'gsea_list.txt', sep='')))
+
+dir.create('gsea_list_3/')
+setwd('gsea_list_3/')
+lapply(df_root_geno, function(x) write.gsealist(df = x[order(log2FoldChange, decreasing = T),], file_name = paste(x[1, comp], 'gsea_list.txt', sep='')))
+lapply(df_leaf_geno, function(x) write.gsealist(df = x[order(log2FoldChange, decreasing = T), ], file_name = paste(x[1, comp], 'gsea_list.txt', sep='')))
+```
+
+
+
+###  print Heatmaps to file
+
+```{r}
+
+make_idx <- function(dds, nlib=4) {
+  dds<- estimateSizeFactors(dds)
+  idx <- rowSums( counts(dds, normalized=T)[,] > 0 ) >=nlib
+  return(idx)
+}
+
+
+
+make_zscr_heatmap(data = counts(dd_leaf.le)[make_idx(dds = dd_leaf.le, nlib = 12),], file_name = 'res_leaf/leaf_libraries_top150.pdf', ngene = 150, colsp = c(3, 6, 9, 12, 15, 18))
+
+
+make_zscr_heatmap(data = counts(dd_root_nl.le)[make_idx(dds = dd_root_nl.le, nlib = 7),], file_name = 'res_root/root_libraries_top150.pdf', colsp = c(3, 6, 9))
+
+
+```
+
+# CALCUALTE THE MANUAL LOG2FOLD CHANGE
+
+
+```{r}
+df_leaf_geno <- do.call(what = rbind, df_leaf_geno)
+df_leaf_geno$manual <- log2(df_leaf_geno$baseMeanA/df_leaf_geno$baseMeanB)
+
+df_root_geno <- do.call(rbind, df_root_geno)
+df_root_geno$manual <- log2(df_root_geno$baseMeanA/df_root_geno$baseMeanB)
+
+#write.table(x = df_leaf_geno, file = 'res_leaf/res_leaf_tables/all_leaf_comparisons_table.txt', append = F, quote = F, sep = '\t')
+#write.table(x = df_root_geno, file = 'res_root/res_root_tables/all_root_comparisons_table.txt', append = F, quote = F, sep = '\t')
+
+```
+
+# COMPARE THE DESEQ2 RESULTS WITH MANUALLY CALCULATED LOG2FOLD CHANGE
+
+```{r}
+
+manual_v_model_leaf <- ggplot(data = df_leaf_geno[complete.cases(df_leaf_geno), ], mapping = aes(x=log2FoldChange, y=manual, colour=sig, alpha=0.5))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  stat_regline_equation(mapping =  aes(label= ..rr.label..))+
+  facet_wrap(~comp)
+ggsave(filename = 'manual_v_model_leaf.pdf', plot = manual_v_model_leaf, device = 'pdf', width = 21, height = 21, units = 'cm', dpi = 300)
+
+manual_v_model_root <- ggplot(data = df_root_geno[complete.cases(df_root_geno), ], mapping = aes(x=log2FoldChange, y=manual, colour=sig, alpha=0.5))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  stat_regline_equation(mapping =  aes(label= ..rr.label..))+
+  facet_wrap(~comp)
+ggsave(filename = 'manual_v_model_root.pdf', plot = manual_v_model_root, device = 'pdf', width = 21, height = 21, units = 'cm', dpi = 300)
+
+test <- do.call(what = rbind, args = df_res[-c(5,14)])
+test1 <- do.call(what = rbind, args = df_res[c(5,14)])
+test <- do.call(rbind, list(test, test1[,-c('orthogroup', 'superortho')]))
+
+manual_v_model_both <- ggplot(data = test[sig=='FDR<0.05', ], mapping = aes(x=log2FoldChange, y=l2B_A, colour=sig, alpha=0.5))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  stat_regline_equation(mapping =  aes(label= ..rr.label..))+
+  facet_wrap(~comp)
+ggsave(filename = 'manual_v_model_root.pdf', plot = manual_v_model_root, device = 'pdf', width = 21, height = 21, units = 'cm', dpi = 300)
+
+```
+
+
+# Comparison metadata (libraries and comparisons used)
+
+```{r}
+
+write_comparison_metadata <- function(index, comparison_names, obj) {
+  bma <- lapply(index, function(x) x[1:(length(x)/2)])
+  bmb <- lapply(index, function(x) x[(length(x)/2):length(x)])
+  libsA <- mapply(function(x, y) paste(as.character(obj$library[x[x %in% y]]), collapse = ', ' ), y=bma, x=index)
+  libsB <- mapply(function(x, y) paste(as.character(obj$library[x[x %in% y]]), collapse = ', ' ), y=bmb, x=index)
+  return(tibble(comparison=comparison_names,
+                baseMeanA= unlist(lapply(comparison_names, function(x) libsA[x])), 
+                baseMeanB= unlist(lapply(comparison_names, function(x) libsB[x]))))
+}
+
+comparison_metadata <- do.call(rbind, list(write_comparison_metadata(index = index_leaf_geno, comparison_names = leaf_geno_comparison_names, obj = dd_leaf.le),
+                                          write_comparison_metadata(index = index_root_geno, comparison_names = root_geno_comparison_names, obj = dd_root_nl.le)))
+
+
+write.table(comparison_metadata, file = 'comparison_library_metadata.txt', append = F, quote = F, sep = '\t', row.names = F)
+
+```
+
