@@ -1,0 +1,1043 @@
+---
+title: "Hypergeometric_enrichment"
+author: "francisco.menendez.burns"
+date: "2023-01-31"
+output: html_document
+---
+#GO enrichement with FGSEA
+
+
+```{r}
+
+library(ComplexUpset)
+library(ComplexHeatmap)
+library(stringi)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(data.table)
+
+load('df_leaf_geno.rda')
+load('df_root_geno.rda')
+load('cr.rda')
+load('go_terms_cacao.rda')
+
+cr <- data.table(cr)
+
+source('Agroavia_PSU_collab/ORA/Intersect_complement_functions.R') #Source very important functions for later
+
+
+annot <- read.table('TC_B97_consensusV2_rev2021_annotated.gff3', skip = 2, fill = T, stringsAsFactors = F)
+annot <- annot[grep('gene', annot$V3), ]
+annot$id <- sapply(strsplit(annot$V9, split = ';') , function(x) x[1])
+annot$id <- sapply(strsplit(annot$id, split = '=') , function(x) x[2])
+annot$annot <- apply(annot, 1, function(x) paste(x[9:length(x)], collapse = ' ')) #annotations
+annot <- annot[!is.na(annot$id), ]
+
+```
+
+
+```{r}
+#Create the matrix of upregulated and downregulated genes
+
+leaf_pa121_24h_0h=NA
+leaf_tsh660_24h_0h=NA
+leaf_24h_0h=NA
+leaf_pa121_48h_0h=NA
+leaf_tsh660_48h_0h=NA
+leaf_48h_0h=NA
+leaf_cd_no_cd=NA
+leaf_pa121_tsh660_0h_0h=NA
+leaf_pa121_tsh660_24h_24h=NA
+leaf_pa121_tsh660_48h_48h=NA
+
+root_pa121_48h_0h=NA
+root_tsh660_48h_0h=NA
+root_48h_0h=NA
+
+root_pa121_tsh660_0h_0h=NA
+root_pa121_tsh660_48h_48h=NA
+
+root_geno_comparison_names <- c('root_pa121_48h_0h', 'root_tsh660_48h_0h', 'root_pa121_tsh660_0h_0h', 'root_pa121_tsh660_48h_48h', 'root_48h_0h')
+
+deg_tf_matrix <- data.frame(geneid=annot$id,   #create data frame for the gene id matrix
+                            leaf_pa121_24h_0h,
+                            leaf_tsh660_24h_0h,
+                            leaf_pa121_48h_0h,
+                            leaf_tsh660_48h_0h,
+                            leaf_48h_0h,
+                            leaf_24h_0h,
+                            leaf_cd_no_cd,
+                            leaf_pa121_tsh660_0h_0h,
+                            leaf_pa121_tsh660_24h_24h,
+                            leaf_pa121_tsh660_48h_48h,
+                            root_pa121_48h_0h,
+                            root_tsh660_48h_0h,
+                            root_pa121_tsh660_0h_0h,
+                            root_pa121_tsh660_48h_48h,
+                            root_48h_0h)
+
+deg_tf_matrix <- data.table::data.table(deg_tf_matrix)
+
+upreg_tf <- deg_tf_matrix #one for the upregulated genes 
+
+downreg_tf <- deg_tf_matrix # one for the down regulated genes
+
+df_res <- df_leaf_geno[c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h','leaf_pa121_48h_0h','leaf_tsh660_48h_0h','leaf_48h_0h','leaf_24h_0h', 'leaf_pa121_tsh660_0h_0h', 'leaf_pa121_tsh660_24h_24h','leaf_pa121_tsh660_48h_48h')]
+df_res <- append(df_res, df_root_geno[c('root_pa121_48h_0h','root_tsh660_48h_0h','root_pa121_tsh660_0h_0h','root_pa121_tsh660_48h_48h','root_48h_0h')]) #list of results data frames for the comparisons of interest
+
+df_res <- lapply(df_res, function(x) return(data.table(x)))
+
+deg_id_list <- lapply(df_res, function(x) x[x$padj<0.05, 'geneid']) #the ids of all deg in leaves
+
+upreg_deg_id <- lapply(df_res, function(x) x[x$padj<0.05 & x$log2FoldChange>0, 'geneid']) #good
+downreg_deg_id <- lapply(df_res, function(x) x[x$padj<0.05 & x$log2FoldChange<0, 'geneid']) #good
+
+deg_id_list <- lapply(deg_id_list, function(x) return(x[!is.na(geneid)]))
+upreg_deg_id <- lapply(upreg_deg_id, function(x) x[!is.na(geneid)])
+downreg_deg_id <- lapply(downreg_deg_id, function(x)x[!is.na(geneid)])
+
+
+invisible(lapply(names(deg_tf_matrix[, 2:ncol(deg_tf_matrix)]), function(x) {
+  deg_tf_matrix[, x] <<- deg_tf_matrix$geneid %in% deg_id_list[ x][[1]]$geneid
+}))
+
+invisible(lapply(names(upreg_tf[, 2:ncol(upreg_tf)]), function(x) {
+  upreg_tf[, x] <<- upreg_tf$geneid %in% upreg_deg_id[[x]]$geneid
+}))
+
+invisible(lapply(names(downreg_tf[, 2:ncol(downreg_tf)]), function(x) {
+  downreg_tf[, x] <<- downreg_tf$geneid %in% downreg_deg_id[[x]]$geneid
+}))
+
+deg_tf_matrix <- data.table(deg_tf_matrix)
+upreg_tf <- data.table(upreg_tf)
+downreg_tf <- data.table(downreg_tf)
+
+
+
+```
+
+
+
+```{r}
+# Make intersections and complements between gene sets
+
+intersection_sets <- list(c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h'), 
+                          c('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h'), 
+                          c('leaf_pa121_24h_0h', 'leaf_pa121_48h_0h'),
+                          c('leaf_tsh660_24h_0h', 'leaf_tsh660_48h_0h'), 
+                          c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h', 'leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h'), 
+                          c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h', 'leaf_24h_0h'), 
+                          c('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h', 'leaf_48h_0h'), 
+                          c( 'root_tsh660_48h_0h', 'root_pa121_48h_0h'),
+                          c( 'root_tsh660_48h_0h', 'root_pa121_48h_0h', 'root_48h_0h'))
+
+
+intersection_genes <- lapply(intersection_sets, function(x) intersect_names(col_list = x ))
+names(intersection_genes) <- unlist(lapply(intersection_sets, function(x) if(length(x)==4) { paste(x[[1]],x[[2]],x[[3]],x[[4]], sep='_in_')} else if(length(x)==3) { paste(x[[1]],x[[2]],x[[3]], sep='_in_')} else { paste(x[[1]],x[[2]], sep='_in_')}))
+
+int <- unlist(intersection_genes, recursive = F)
+
+complement_pairs <- list(c('leaf_pa121_48h_0h', 'leaf_pa121_24h_0h'),
+                         c('leaf_tsh660_48h_0h', 'leaf_tsh660_24h_0h'),
+                         c('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h'),
+                         c('root_pa121_48h_0h', 'root_tsh660_48h_0h'))
+
+complements <- lapply(complement_pairs, function(x) complement_names(col1 = x[[1]], col2 = x[[2]]))
+names(complements) <- unlist(lapply(complement_pairs, function(x) paste(x[[1]], x[[2]], sep='_against_')))
+coml <- unlist(complements, recursive = F)
+coml <- unlist(coml, recursive = F)
+#names(coml) <- names(unlist(coml, recursive = F))
+
+data.frame(down=unlist(lapply(downreg_deg_id, nrow)), up=unlist(lapply(upreg_deg_id, nrow)), addedup=unlist(lapply(downreg_deg_id, nrow))+unlist(lapply(upreg_deg_id, nrow)),whatis=unlist(lapply(deg_id_list, nrow)))
+
+
+```
+
+# VENN DIAGRAM
+
+```{r}
+
+library(ggVennDiagram)
+
+venn_root_48h <- ggVennDiagram(list(deg_id_list$root_pa121_48h_0h[,geneid], deg_id_list$root_tsh660_48h_0h[,geneid]), category.names = c('PA121', 'TSH660'))+
+  theme(legend.position = 'none')+
+  scale_x_continuous(expand = expand_scale(mult = .2))+
+  labs(subtitle = 'Root DEG in TSH660 and PA121 48h ACT')+
+  scale_fill_gradient(low='#DEBAD6', high = '#7954A1')
+
+ggsave('venn_ora_root_48h', plot = venn_root_48h, device = 'pdf', width = 10, height = 10, units = 'cm', dpi = 300)
+
+venn_leaf_48h <- ggVennDiagram(list(deg_id_list$leaf_pa121_48h_0h[,geneid], deg_id_list$leaf_tsh660_48h_0h[,geneid]), category.names = c('PA121', 'TSH660'))+
+  theme(legend.position = 'none')+
+  scale_x_continuous(expand = expand_scale(mult = .2))+
+  labs(subtitle = 'Upregulated Leaf DEG in TSH660 and PA121 48h ACT')+
+  scale_fill_gradient(low='#DEBAD6', high = '#7954A1')
+
+venn_leaf_24h_48h <- ggVennDiagram(list(deg_id_list$leaf_tsh660_48h_0h[,geneid],  deg_id_list$leaf_tsh660_24h_0h[,geneid], deg_id_list$leaf_pa121_48h_0h[,geneid], deg_id_list$leaf_pa121_24h_0h[,geneid]), category.names = c('TSH660 48h', 'TSH660 24h',  'PA121 48h', 'PA121 24h'))+
+  theme(legend.position = 'none')+
+  scale_x_continuous(expand = expand_scale(mult = .2))+
+  labs(subtitle = 'Upregulated Leaf DEG in TSH660 and PA121 24h & 48h ACT')+
+  scale_fill_gradient(low='#DEBAD6', high = '#7954A1')
+
+```
+
+
+
+#OVER REPRESENTATION ANALYSIS
+```{r}
+library(fgsea)
+library(dplyr)
+library(patchwork)
+
+load('dd_objects.rmd') #should be .rda
+
+dd_root_nl.le <- DESeq2::estimateSizeFactors(dd_root_nl.le)
+
+cnt <- DESeq2::counts(dd_root_nl.le, normalized=T)
+                      
+table(rowMeans(cnt[,grep('T0', colnames(cnt), value=T)])>0)
+table(rowMeans(cnt[,grep('T48', colnames(cnt), value=T)])>0)
+
+ref0 <- rownames(cnt[rowMeans(cnt[,grep('T0', colnames(cnt), value=T)])>0, ])
+ref48 <- rownames(cnt[rowMeans(cnt[,grep('T48', colnames(cnt), value=T)])>0, ])
+sum(ref48 %in% ref0)/length(unique(c(ref0, ref48)))
+
+
+#leaf reference set
+leaf_reference <- read.table('res_leaf/GOTermE/leaf_reference_set.txt')
+leaf_reference <- leaf_reference$V1
+
+#root reference set
+root_reference <- read.table('res_root/GoTermE/root_reference_set.txt')
+root_reference <- root_reference$V1
+
+
+
+#sets for leaf reference
+leaf_sets <- coml[1:12]
+leaf_sets <- append(leaf_sets, int[1:14])
+
+#sets for root reference
+root_sets <- coml[13:16]
+root_sets <- append(root_sets, int[15:18])
+
+#ORA in both polarity DEG 
+up_dn_sets_l <- list(do.call(rbind, coml[c(1,3)]),# up and down DEG=>1
+                     do.call(rbind, coml[c(2,4)]), 
+                     do.call(rbind, coml[c(5,7)]),
+                     do.call(rbind, coml[c(6,8)]), 
+                     do.call(rbind, coml[c(9,11)]), 
+                     do.call(rbind, coml[c(10,12)]),
+                     do.call(rbind, int[1:2]), 
+                     do.call(rbind, int[3:4]), 
+                     do.call(rbind, int[5:6]),
+                     do.call(rbind, int[7:8]),
+                     do.call(rbind, int[9:10]),
+                     do.call(rbind, int[11:12]),
+                     do.call(rbind, int[13:14]))
+names(up_dn_sets_l) <- c('leaf_pa121_48h_0h_against_leaf_pa121_24h_0h.DEGs_PA121_48h_0h',
+                         'leaf_pa121_48h_0h_against_leaf_pa121_24h_0h.DEGs_PA121_24h_0h',
+                         'leaf_tsh660_48h_0h_against_leaf_tsh660_24h_0h.DEGs_TSH660_48h_0h',
+                         'leaf_tsh660_48h_0h_against_leaf_tsh660_24h_0h.DEGs_TSH660_24h_0h', 
+                         'leaf_pa121_48h_0h_against_leaf_tsh660_48h_0h.DEG_PA121_48h_0h',
+                         'leaf_pa121_48h_0h_against_leaf_tsh660_48h_0h.DEG_TSH660_48h_0h', 
+                         'leaf_pa121_24h_0h_in_leaf_tsh660_24h_0h', #1:2
+                         'leaf_pa121_48h_0h_in_leaf_tsh660_48h_0h', #3:4
+                         'leaf_pa121_24h_0h_in_leaf_pa121_48h_0h', #5:6
+                         'leaf_tsh660_24h_0h_in_leaf_tsh660_48h_0h', #7:8
+                         'leaf_pa121_24h_0h_in_leaf_tsh660_24h_0h_in_leaf_pa121_48h_0h_in_leaf_tsh660_48h_0h',
+                         'leaf_pa121_24h_0h_in_leaf_tsh660_24h_0h_in_leaf_24h_0h',
+                         'leaf_pa121_48h_0h_in_leaf_tsh660_48h_0h_in_leaf_48h_0h')
+
+
+
+up_dn_sets_r <-  list(do.call(rbind, coml[c(13,15)]),
+                      do.call(rbind, coml[c(14,16)]),
+                      do.call(rbind, int[15:16]),
+                      do.call(rbind, int[17:18])
+)
+
+names(up_dn_sets_r) <- c('root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_PA121_48h_0h',
+                         'root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_TSH660_48h_0h',
+                         'root_tsh660_48h_0h_in_root_pa121_48h_0h',
+                         'root_tsh660_48h_0h_in_root_pa121_48h_0h_in_root_48h_0h')
+```
+
+
+```{r}
+#ORA leaves
+
+# For each cluster i, perform ORA
+ORA_leaf <- lapply(seq_along(leaf_sets), function(i) {
+  fora(pathways = sl, 
+       genes = leaf_sets[[i]][, geneid], # genes in go_term i
+       universe = leaf_reference, # all genes expressed in leaves
+       minSize = 15, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(leaf_sets)[[i]]) # add intersection/complement names column
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids")) 
+
+ORA_leaf_DEG <- lapply(seq_along(up_dn_sets_l), function(i) {
+  fora(pathways = sl, 
+       genes = up_dn_sets_l[[i]][, geneid], # genes in go_term i
+       universe = leaf_reference, # all genes expressed in leaves
+       minSize = 15, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(up_dn_sets_l)[[i]]) # add intersection/complement names column
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids")) 
+
+#leaf single cd no cd
+leaf48h_0h_id <- list(data.table(deg_id_list$leaf_48h_0h))
+names(leaf48h_0h_id) <- 'leaf48h_0h_id'
+
+ORA_leaf_SINGLE <- lapply(seq_along(leaf48h_0h_id), function(i) {
+  fora(pathways = sl, 
+       genes = leaf48h_0h_id[[i]][, geneid], # genes in go_term i
+       universe = leaf_reference, # all genes expressed in leaves
+       minSize = 15, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(leaf48h_0h_id)[[i]]) # add intersection/complement names column
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+```
+
+
+```{r}
+#ORA ROOTS
+ORA_root <- lapply(seq_along(root_sets), function(i) {
+  fora(pathways = sl, 
+       genes = root_sets[[i]][, geneid], # genes in go_term i
+       universe = root_reference, # all genes expressed in leaves
+       minSize = 15, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(root_sets)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+#perform over representation using all differetially expressed degs in on or anothser
+
+ORA_root_DEG <- lapply(seq_along(up_dn_sets_r), function(i) {
+  fora(pathways = sl, 
+       genes = up_dn_sets_r[[i]][, geneid], # genes in go_term i
+       universe = root_reference, # all genes expressed in leaves
+       minSize = 20, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(up_dn_sets_r)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+root_48h_0h_id <- list(data.table(deg_id_list$root_48h_0h))
+
+names(root_48h_0h_id) <- 'root_48h_0h_DEG'
+
+ORA_root_SINGLE <- lapply(seq_along(root_48h_0h_id), function(i) {
+  fora(pathways = sl, 
+       genes = root_48h_0h_id[[i]][, geneid], # genes in go_term i
+       universe = root_reference, # all genes expressed in leaves
+       minSize = 20, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(root_48h_0h_id)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+ORA_root_SINGLE_ref0 <- lapply(seq_along(root_48h_0h_id), function(i) {
+  fora(pathways = sl, 
+       genes = root_48h_0h_id[[i]][, geneid], # genes in go_term i
+       universe = ref0, # all genes expressed in roots at time 0
+       minSize = 20, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(root_48h_0h_id)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+
+
+```
+
+
+#SIMPLIFY ENRICHMENT
+```{r}
+#use binary cut clustering on semantic similarity matrices to compute GO BP cluster membership
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+
+if (!require("simplifyEnrichment", quietly = TRUE))
+  library("simplifyEnrichment")
+
+
+
+# ALL DEGS SINGLE ROOT_48_0
+
+go_list_root48h_0h.05 <- ORA_root_SINGLE[padj<0.05 & category=='biological process', pathway]
+gosim_root48h_0h.05 <- GO_similarity(go_list_root48h_0h.05)
+binary_root48h_0h.05 <- simplifyEnrichment(gosim_root48h_0h.05, plot = F)
+binary_root48h_0h.05.rnk <- data.table(binary_root48h_0h.05)
+binary_root48h_0h.05.rnk <- binary_root48h_0h.05.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+
+binary_root48h_0h.05[(binary_root48h_0h.05$cluster %in% binary_root48h_0h.05.rnk[N<2, cluster]),'cluster']  <- 8
+
+#binary_root48h_0h.05[(binary_root48h_0h.05$cluster %in% c(1)), ]
+binary_root48h_0h.05[binary_root48h_0h.05$cluster %in% c(13), 'cluster'] <- 2
+binary_root48h_0h.05[binary_root48h_0h.05$cluster %in% c(17), 'cluster'] <- 3
+binary_root48h_0h.05[binary_root48h_0h.05$cluster %in% c(6), 'cluster'] <- 5
+binary_root48h_0h.05[binary_root48h_0h.05$cluster %in% c(7), 'cluster'] <- 6
+binary_root48h_0h.05[binary_root48h_0h.05$cluster %in% c(37), 'cluster'] <- 7
+
+binary_root48h_0h.05.rnk <- data.table(binary_root48h_0h.05)
+binary_root48h_0h.05.rnk <- binary_root48h_0h.05.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(cluster, decreasing = F),]
+
+
+
+```
+
+
+```{r}
+library("tm")
+library('wordcloud')
+library(textreg)
+source('Agroavia_PSU_collab/ORA/wordcloud_functions.R')
+
+```
+
+#test width
+```{r}
+
+
+get_words <- function(gl){
+  ann <- cr[crv3.2 %in% gl, cr]
+  #ann <- unlist(lapply(ann, function(x) strsplit(x, split = 'Note=')[[1]][2]), recursive = F)
+  ann <- unlist(lapply(ann, function(x) paste(c(strsplit(x, split = ' ',  fixed = T)[[1]][-1]), collapse = ' ')), recursive=F)
+  ann <- unlist(lapply(ann, function(x) trimws(x)), recursive=F)
+}
+
+
+gl <- ORA_root_SINGLE[, overlapGenes]
+names(gl) <- ORA_root_SINGLE[, pathway]
+
+root_48h_0h_OverlapGenes_wordlist <- lapply(X  = gl,  get_words)
+wl <- lapply(root_48h_0h_OverlapGenes_wordlist, make_wordcloud)
+
+wl <- lapply(binary_root48h_0h.05.rnk$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_root48h_0h.05.rnk$cluster
+
+
+pdf('binary_clustering_root48h_0h_width.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.05), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.05$cluster, column_split = binary_root48h_0h.05$cluster,
+        #column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .6),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.05$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.05$cluster, go_id = binary_root48h_0h.05$id, word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+        row_labels = go_terms[ match(binary_root48h_0h.05$id, ids), go_names])
+dev.off()
+
+```
+
+#print all clusters at once from the cluster list?
+
+```{r}
+
+
+get_words <- function(gl){
+  ann <- cr[crv3.2 %in% gl, cr]
+  #ann <- unlist(lapply(ann, function(x) strsplit(x, split = 'Note=')[[1]][2]), recursive = F)
+  ann <- unlist(lapply(ann, function(x) paste(c(strsplit(x, split = ' ',  fixed = T)[[1]][-1]), collapse = ' ')), recursive=F)
+  ann <- unlist(lapply(ann, function(x) trimws(x)), recursive=F)
+}
+
+
+gl <- ORA_root_SINGLE[, overlapGenes]
+names(gl) <- ORA_root_SINGLE[, pathway]
+
+root_48h_0h_OverlapGenes_wordlist <- lapply(X  = gl,  get_words)
+wl <- lapply(root_48h_0h_OverlapGenes_wordlist, make_wordcloud)
+
+wl <- lapply(binary_root48h_0h.05.rnk$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_root48h_0h.05.rnk$cluster
+
+
+#pdf('binary_clustering_root48h_0h_width.pdf', width = 15, height = 10)
+Heatmap(matrix = t(cluster_root_deg0$gosim), name='GO\nsemantic\nsimilarity',row_split = cluster_root_deg0$binary_clusters$cluster, column_split = cluster_root_deg0$binary_clusters$cluster,
+        #column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .6),
+        #left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = cluster_root_deg0$binary_clusters$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = cluster_root_deg0$binary_clusters$cluster, go_id = cluster_root_deg0$binary_clusters$id, word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+        row_labels = go_terms[ match(cluster_root_deg0$binary_clusters$id, go_terms$ids), 'go_names'])
+
+heatnaps <- function(cluster_list = cluster_root_deg0){
+  Heatmap(matrix = t(cluster_list$gosim), name='GO\nsemantic\nsimilarity',row_split = cluster_list$binary_clusters$cluster, column_split = cluster_list$binary_clusters$cluster,
+          #column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+          col=c('white', 'red'),
+          cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+          row_names_gp = gpar(cex = .7),
+          column_names_gp = gpar(cex = .6),
+          #left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = cluster_root_deg0$binary_clusters$cluster, term = wl, max_words = 50, side = 'left')),
+          right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = cluster_list$binary_clusters$cluster, go_id = cluster_list$binary_clusters$id, word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+          row_labels = go_terms[ match(cluster_list$binary_clusters$id, go_terms$ids), 'go_names'])
+}
+
+
+
+pdf(file = 'suplementaty_for_figure_3_roots.pdf',  width = 10, height = 7)
+lapply(list(cluster_root_deg0, cluster_root_deg1, cluster_root_deg2, cluster_root_deg3, cluster_root_deg4, cluster_root_deg5), function(x) heatnaps(cluster_list = x))
+dev.off()
+
+pdf(file = 'suplementaty_for_figure_3_rootsMF.pdf',  width = 10, height = 7)
+lapply(list(cluster_root_deg0MF, cluster_root_deg1MF, cluster_root_deg2MF, cluster_root_deg3MF, cluster_root_deg4MF, cluster_root_deg5MF), function(x) heatnaps(cluster_list = x))
+dev.off()
+
+
+
+pdf(file = 'suplementaty_for_figure_Leaves_3.pdf',  width = 7, height = 3)
+lapply(list(cluster_leaf_deg0, cluster_leaf_deg1, cluster_leaf_deg2, cluster_leaf_deg3, cluster_leaf_deg4, cluster_leaf_deg5), function(x) heatnaps(cluster_list = x))
+dev.off()
+
+```
+
+
+
+```{r}
+#all DEG in ROOTS 48 Hours after group 4,5,6
+
+binary_root48h_0h.g2 <- binary_root48h_0h.05 #grouping 2
+
+#binary_root48h_0h.g2[binary_root48h_0h.g2$cluster %in% c(5), 'cluster'] <- 4
+binary_root48h_0h.g2[binary_root48h_0h.g2$cluster %in% c(6), 'cluster'] <- 5
+
+binary_root48h_0h.g2.rnk <- data.table(binary_root48h_0h.g2)
+binary_root48h_0h.g2.rnk <- binary_root48h_0h.g2.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(cluster, decreasing = F),]
+
+
+# All DEG IN ROOTS 48 HOURS AFTER NO SINGLETONS
+
+gosim_root48h_0h_ORPH.05 <- GO_similarity(go_list_root48h_0h.05, remove_orphan_terms = T)
+binary_root48h_0h_ORPH.05 <- simplifyEnrichment(gosim_root48h_0h_ORPH.05, plot = F)
+binary_root48h_0h_ORPH.05.rnk <- data.table(binary_root48h_0h_ORPH.05)
+binary_root48h_0h_ORPH.05.rnk <- binary_root48h_0h_ORPH.05.rnk[, .(.N, GO_ID=list(.SD[1:.N, id])), .(cluster)][order(N, decreasing = T),]
+
+
+binary_root48h_0h_ORPH.05[(binary_root48h_0h_ORPH.05$cluster %in% binary_root48h_0h_ORPH.05.rnk[N<2, cluster]),'cluster']  <- 8
+
+#binary_root48h_0h.05[(binary_root48h_0h.05$cluster %in% c(1)), ]
+binary_root48h_0h_ORPH.05[binary_root48h_0h_ORPH.05$cluster %in% c(13), 'cluster'] <- 2
+binary_root48h_0h_ORPH.05[binary_root48h_0h_ORPH.05$cluster %in% c(17), 'cluster'] <- 3
+binary_root48h_0h_ORPH.05[binary_root48h_0h_ORPH.05$cluster %in% c(6), 'cluster'] <- 5
+binary_root48h_0h_ORPH.05[binary_root48h_0h_ORPH.05$cluster %in% c(7), 'cluster'] <- 6
+binary_root48h_0h_ORPH.05[binary_root48h_0h_ORPH.05$cluster %in% c(37), 'cluster'] <- 7
+
+binary_root48h_0h_ORPH.05.rnk <- data.table(binary_root48h_0h_ORPH.05)
+binary_root48h_0h_ORPH.05.rnk <- binary_root48h_0h_ORPH.05.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(cluster, decreasing = F),]
+
+
+# All DEG IN ROOTS 48 HOURS REFERENCED TO GENES ONLY EXPRESSED AT TIME 0
+
+go_list_root48h_0h.REF0 <- ORA_root_SINGLE_ref0[category=='biological process', pathway]
+gosim_root48h_0h.REF0 <- GO_similarity(go_list_root48h_0h.REF0)
+binary_root48h_0h.REF0 <- simplifyEnrichment(gosim_root48h_0h.REF0, plot = F)
+binary_root48h_0h.REF0.rnk <- data.table(binary_root48h_0h.REF0)
+binary_root48h_0h.REF0.rnk <- binary_root48h_0h.REF0.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+sum(unlist(binary_root48h_0h.05.rnk[1, GO_ID]) %in% unlist(binary_root48h_0h.REF0.rnk[1, GO_ID]))/length(unique(c(unlist(binary_root48h_0h.05.rnk[1, GO_ID]), unlist(binary_root48h_0h.REF0.rnk[1, GO_ID])))) #similarity betwen the main cluster in both
+
+pdf('ref_binary_cut_root48_0.pdf', width = 13, height = 10)
+ht_clusters(gosim_root48h_0h.REF0, cl = binary_root48h_0h.REF0$cluster, draw_word_cloud = T, min_term = 2)
+dev.off()
+
+
+# CELLULAR COMPONENT
+go_list_root48h_0h.cc <- ORA_root_SINGLE[category=='cellular component', pathway]
+gosim_root48h_0h.cc <- GO_similarity(go_list_root48h_0h.cc, ont = 'CC')
+binary_root48h_0h.cc <- simplifyEnrichment(gosim_root48h_0h.cc, plot = F)
+binary_root48h_0h.cc.rnk <- data.table(binary_root48h_0h.cc)
+binary_root48h_0h.cc.rnk <- binary_root48h_0h.cc.rnk[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+# REFERENCE ONLY 0H ROOT obtainedvery similar results maybe even slightly worse clutering
+
+binary_root48h_0h.REF0[binary_root48h_0h.REF0$id %in% unlist(binary_root48h_0h.REF0.rnk[N<2, GO_ID] ),"cluster"] <- 8
+binary_root48h_0h.REF0[binary_root48h_0h.REF0$cluster %in% c(39, 18, 19) ,"cluster"] <- 2
+```
+
+# GENE ANNOTATION WORDCLOUDS
+
+```{r}
+library("tm")
+library('wordcloud')
+library(textreg)
+source('Agroavia_PSU_collab/ORA/wordcloud_functions.R')
+
+```
+
+
+```{r}
+#wordlist
+
+gl <- ORA_root_SINGLE_ref0[, overlapGenes]
+names(gl) <- ORA_root_SINGLE_ref0[, pathway]
+
+#source('wordcloud_functions.R')
+
+root_48h_0h_REFO_OverlapGenes_wordlist <- lapply(X  = gl,  get_words)
+wl <- lapply(root_48h_0h_REFO_OverlapGenes_wordlist, make_wordcloud)
+
+wl <- lapply(binary_root48h_0h.REF0.rnk$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_root48h_0h.REF0.rnk$cluster
+
+pdf('ref_binary_cut_root48_0.pdf', width = 13, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.REF0), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.REF0$cluster, column_split = binary_root48h_0h.REF0$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Leaf DEG 48h ACT Ref 0H',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.REF0$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.REF0$cluster, go_id = binary_root48h_0h.REF0$id)),
+        row_labels = go_terms[ match(binary_root48h_0h.REF0$id, ids), go_names])
+
+dev.off()
+
+ht_clusters(gosim_root48h_0h.cc, cl = binary_root48h_0h.cc$cluster, draw_word_cloud = T, min_term = 2)
+
+
+#gene ids in the overlaps per cluster
+geneid_root_clusters <- lapply(binary_root48h_0h.05.rnk$GO_ID, function(x) return(ORA_root_SINGLE[pathway %in% x, overlapGenes] ))
+geneid_root_clusters <- lapply(geneid_root_clusters, function(x) return(unlist(x)))
+names(geneid_root_clusters) <- binary_root48h_0h.05.rnk$cluster
+
+cr[crv3.2 %in%  geneid_root_clusters[[1]],] 
+
+
+pdf('binary_clustering_root48h_0h.pdf', width = 10, height = 10)
+ht_clusters(gosim_clusters_root.015, cl = clusters_root_response.015$cluster, draw_word_cloud = T, min_term = 4)
+ht_clusters(mat = gosim_root48h_0h, cl = binary_root48h_0h$cluster, min_term = 4)
+ht_clusters(mat = gosim_root48h_0h.05, cl = binary_root48h_0h.05$cluster, min_term = 4)
+dev.off()
+
+
+ggplot(ORA_root_DEG[ category=='biological process', .(padj, size, cluster)], aes(x=-log(padj), y=size, colour=cluster))+geom_point()+geom_smooth(method = 'lm')+geom_hline(yintercept = c(300, 15))
+
+
+```
+
+
+```{r}
+#list comparison between 1. DEG in complement PA121 48_0 2. DEG in complement TSH660 48_0 3. Intersection of both 4. Root 48h_0h
+
+go_list_int_deg_root <- ORA_root_DEG[cluster=='root_tsh660_48h_0h_in_root_pa121_48h_0h_in_root_48h_0h' & category=='biological process', pathway]
+gosim_int_deg_root <- GO_similarity(go_list_int_deg_root, remove_orphan_terms = T)
+df_int_deg_root <- simplifyGO(gosim_int_deg_root, plot = F) 
+
+
+go_list_PA12148hroot <- ORA_root_DEG[cluster == 'root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_PA121_48h_0h' & category=='biological process', pathway]
+gosim_PA12148hroot <- GO_similarity(go_list_PA12148hroot, remove_orphan_terms = T)
+binary_PA12148h_root <- simplifyGO(gosim_PA12148hroot, plot = F)
+
+
+go_list_TSH66048hroot <- ORA_root_DEG[cluster == 'root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_TSH660_48h_0h' & category=='biological process', pathway]
+gosim_TSH660hroot <- GO_similarity(go_list_TSH66048hroot, remove_orphan_terms = T)
+binary_TSH660hroot <- simplifyGO(gosim_TSH660hroot, plot = F)
+binary_TSH660hroot <- data.table(binary_TSH660hroot)
+
+
+
+# perfom clustering on all degs, then split them by cluster
+
+#MULTIPLE COMPARISONS AT THE SAME TIME
+if (!require('gridtext')) 
+  install.packages('gridtext') else
+    library('gridtext')
+
+lt <- ORA_root_DEG[cluster %in% c( 'root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_PA121_48h_0h',
+                                   'root_pa121_48h_0h_against_root_tsh660_48h_0h.complementsDEG_TSH660_48h_0h',
+                                   'root_tsh660_48h_0h_in_root_pa121_48h_0h') & category=='biological process', ]
+lt <- rbind(lt, ORA_root_SINGLE[ category=='biological process', ])
+lt <- split(lt, f=lt[, cluster])
+
+pdf(file = 'root_clusters_comparison.p05.pdf', width = 15, height = 10)
+clusters_root_response.05 <- simplifyGOFromMultipleLists(lt, padj_cutoff = 0.05, ont = 'BP', column_title = 'DEG membership in GO clusters', )
+dev.off()
+
+clusters_root_response.05.rank <- data.table(clusters_root_response.05)
+clusters_root_response.05.rank <- clusters_root_response.05.rank[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+gosim_clusters_root.05 <- GO_similarity(clusters_root_response.05$id)
+ht_clusters(gosim_clusters_root.05, cl = clusters_root_response.05$cluster, draw_word_cloud = F)
+
+clusters_root_response.015 <- simplifyGOFromMultipleLists(lt, padj_cutoff = 0.015, ont = 'BP')
+clusters_root_response.015.rnk <- data.table(clusters_root_response.015)
+clusters_root_response.015.rnk <- clusters_root_response.015.rnk[, .(.N, GO_ID=list(.SD[1:.N, id]) ), .(cluster)][order(N, decreasing = T),]
+gosim_clusters_root.015 <- GO_similarity(clusters_root_response.015$id, remove_orphan_terms = F)
+ht_clusters(gosim_clusters_root.015, cl=clusters_root_response.015$cluster, draw_word_cloud = F)
+clusters_root_response.015[!(clusters_root_response.015$cluster %in% clusters_root_response.015.rnk[N>=2, cluster]),]
+
+pdf(file = 'Go_from_root_clsters.pdf', width = 15, height = 10)
+simplifyGOFromMultipleLists(lt, padj_cutoff = 0.05, ont = 'BP', min_term = 2, column_title = 'Enriched GO from DEG of Root complements and intersections' )
+ht_clusters(gosim_clusters_root.015, cl = clusters_root_response.015$cluster, col = c('white', 'red'), draw_word_cloud = F, column_title = 'Comparison enriched GO terms in root DEG', min_term = 2)
+dev.off()
+
+
+
+
+```
+
+# ALL Leaf
+```{r}
+go_list_leaf_48 <- ORA_leaf_SINGLE[category=='biological process', pathway]
+gosimleaf48h_0h <- GO_similarity(go_list_leaf_48, ont = 'BP')
+binary_leaf_48h0h <- simplifyGO(gosimleaf48h_0h, plot = F)
+binary_leaf_48h0h.rank <- data.table(binary_leaf_48h0h)
+binary_leaf_48h0h.rank <- binary_leaf_48h0h.rank[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+binary_leaf_48h0h[binary_leaf_48h0h$cluster %in% binary_leaf_48h0h.rank[N<=2, cluster],"cluster"] <- 3
+#binary_leaf_48h0h[binary_leaf_48h0h$cluster %in% 2,"cluster"] <- 1
+#binary_leaf_48h0h[binary_leaf_48h0h$cluster %in% 1,"cluster"] <- 1
+
+binary_leaf_48h0h.rank <- data.table(binary_leaf_48h0h)
+binary_leaf_48h0h.rank <- binary_leaf_48h0h.rank[, .(GO_ID=list(.SD[1:.N, id]), .N), .(cluster)][order(N, decreasing = T),]
+
+#leaves on their own have few complements
+
+```
+
+
+```{r}
+#wordlist
+
+gl <- ORA_leaf_SINGLE[, overlapGenes]
+names(gl) <- ORA_leaf_SINGLE[, pathway]
+
+
+leaf_48h_0h_OverlapGenes_wordlist <- lapply(X  = gl,  get_words)
+wl <- lapply(leaf_48h_0h_OverlapGenes_wordlist, make_wordcloud)
+
+wl <- lapply(binary_leaf_48h0h.rank$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_leaf_48h0h.rank$cluster
+
+
+pdf('binary_clustering_leaf48h_0h.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosimleaf48h_0h), name='GO\nsemantic\nsimilarity',row_split = binary_leaf_48h0h$cluster, column_split = binary_leaf_48h0h$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Leaf DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_leaf_48h0h$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_leaf_48h0h$cluster, go_id = binary_leaf_48h0h$id)),
+        row_labels = go_terms[ match(binary_leaf_48h0h$id, ids), go_names])
+dev.off()
+
+pdf('binary_clustering_leaf48h_0h_no_single.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosimleaf48h_0h), name='GO\nsemantic\nsimilarity',row_split = binary_leaf_48h0h$cluster, column_split = binary_leaf_48h0h$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Leaf DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_leaf_48h0h$cluster, term = wl, max_words = 50, side = 'left')))
+dev.off()
+
+```
+
+
+
+#Print PDF figures
+
+```{r}
+
+gl <- ORA_root_SINGLE[, overlapGenes]
+names(gl) <- ORA_root_SINGLE[, pathway]
+
+root_48h_0h_OverlapGenes_wordlist <- lapply(X  = gl,  get_words)
+wl <- lapply(root_48h_0h_OverlapGenes_wordlist, make_wordcloud)
+
+wl <- lapply(binary_root48h_0h.05.rnk$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_root48h_0h.05.rnk$cluster
+
+root_48h_0h_OverlapGenes_wordlist <- lapply(binary_root48h_0h.05.rnk$GO_ID, function(x) return(unlist(root_48h_0h_OverlapGenes_wordlist[x], recursive = T)))
+names(root_48h_0h_OverlapGenes_wordlist) <- binary_root48h_0h.05.rnk$cluster
+
+pdf('binary_clustering_root48h_0h.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.05), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.05$cluster, column_split = binary_root48h_0h.05$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.05$cluster, term = wl, max_words = 50, side = 'left')))
+dev.off()
+
+pdf('binary_clustering_root48h_0h2.pdf', width = 17, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.05$cluster, column_split = binary_root48h_0h.05$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.05$cluster, term = wl, max_words = 50, side = 'left'), simple_anno_siz=unit(2, 'in')))
+#right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.05$cluster, go_id = binary_root48h_0h.05$id), simple_anno_siz=unit(2, 'in')))
+dev.off()
+
+pdf('binary_clustering_root48h_0h3.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.05), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.05$cluster, column_split = binary_root48h_0h.05$cluster,
+        column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .7),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.05$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.05$cluster, go_id = binary_root48h_0h.05$id)),
+        row_labels = go_terms[ match(binary_root48h_0h.05$id, ids), go_names])
+dev.off()
+
+#test width
+
+pdf('binary_clustering_root48h_0h_width.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.05), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.05$cluster, column_split = binary_root48h_0h.05$cluster,
+        #column_title = 'Binary-Cut clustering of enriched GO terms in all Root DEG 48h ACT',
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .6),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.05$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.05$cluster, go_id = binary_root48h_0h.05$id, word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+        row_labels = go_terms[ match(binary_root48h_0h.05$id, ids), go_names])
+dev.off()
+
+#group 4,5 6
+
+binary_root48h_0h.g2
+binary_root48h_0h.g2.rnk$cluster <- c(1:6, 'bin')
+
+wl <- lapply(binary_root48h_0h.g2.rnk$GO_ID, function(x) return(unlist(wl[unlist(x)])))
+names(wl) <- binary_root48h_0h.g2.rnk$cluster
+
+
+
+
+pdf('binary_clustering_root48h_0h_group4.pdf', width = 15, height = 10)
+Heatmap(matrix = t(gosim_root48h_0h.05), name='GO\nsemantic\nsimilarity',row_split = binary_root48h_0h.g2$cluster, column_split = binary_root48h_0h.g2$cluster,
+        column_title = NULL,
+        col=c('white', 'red'),
+        cluster_columns = F, cluster_rows = F, row_gap = unit(0, "mm"), column_gap = unit(0, "mm"), border = TRUE, 
+        row_names_gp = gpar(cex = .7),
+        column_names_gp = gpar(cex = .6, rot=270),
+        left_annotation = rowAnnotation(wc = anno_word_cloud(align_to = binary_root48h_0h.g2$cluster, term = wl, max_words = 50, side = 'left')),
+        right_annotation = rowAnnotation(wc=anno_word_cloud_from_GO(align_to = binary_root48h_0h.g2$cluster, go_id = binary_root48h_0h.g2$id, word_cloud_grob_param=list(max_width=unit(25, 'mm')))),
+        row_labels = go_terms[ match(binary_root48h_0h.g2$id, ids), go_names])
+dev.off()
+
+
+
+```
+
+
+
+#repeat in arabidopsis
+
+```{r}
+BiocManager::install("org.At.tair.db")
+library(msigdbr)
+
+
+# data source: Genome-wide transcriptome profiling of the early cadmium response of Arabidopsis roots and shoots. Herbette, S. 2006
+arath_rtcd <- read.csv('root_cd_arath.csv',skip = 2, header = F)
+arath_rtcd <- arath_rtcd[-(2:4), ]
+arath_comp <- unique(as.character(arath_rtcd[1, 4:ncol(arath_rtcd)]))
+arath_ids <- arath_rtcd[3:nrow(arath_rtcd), 1:3]
+
+arath_rtcd <- lapply(arath_comp, function(x) arath_rtcd[2:nrow(arath_rtcd), arath_rtcd[1, ] %in% x])
+
+arath_rtcd <- lapply(arath_rtcd, function(x) {
+  names(x) <- x[1, ]
+  return(x[2:nrow(x),])
+})
+
+arath_comp <- rep(arath_comp, each=nrow(arath_rtcd[[1]]) )
+
+arath_rtcd <- lapply(X = arath_rtcd, function(x) return(cbind(arath_ids, x)))
+
+arath_rtcd <- do.call(rbind, arath_rtcd)
+arath_rtcd$comp <- arath_comp
+
+names(arath_rtcd) <- c('catma', 'agi', 'name', 'i', 'rat', 'pval', 'comparison')
+arath_rtcd <- data.table(arath_rtcd)
+arath_rtcd$i <- as.numeric(arath_rtcd$i)
+
+deg_arath <- trimws(arath_rtcd[comparison=='Roots_50µM Cd, 30h/control, 30h' & pval<0.05, agi])
+deg_arath <- deg_arath[-grep('No', deg_arath, value = F)]
+deg_arath <- deg_arath[-grep('no', deg_arath)]
+deg_arath <- list(deg_arath)
+names(deg_arath) <- 'root_50uM_30h'
+
+arath_root_reference <- trimws(unique(arath_rtcd[, agi]))
+
+# arath go annotation
+
+arath_go <- read.delim('gene_association.tair', skip = 5, fill = T, sep = '\t', header = F)
+arath_go <- arath_go[, c(2, 3, 5, 9, 10, 11)]
+names(arath_go) <- c('agi', 'gene_name', 'go_term', 'category', 'agi2', 'annot') 
+arath_go <- split(arath_go, arath_go$go_term)
+
+
+al <- lapply(arath_go, function(x) {
+  y <- x[, 'agi']
+  return(y)
+})
+
+
+ggplot(data = arath_rtcd, mapping = aes(log(i), fill=comparison, alpha=0.3))+geom_density() #allhave similar distribution
+
+#
+
+ORA_root_ARATH <- lapply(seq_along(deg_arath), function(i) {
+  fora(pathways = al, 
+       genes = deg_arath[[i]], # genes in go_term i
+       universe = arath_root_reference, # all genes expressed in leaves
+       minSize = 20, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(deg_arath)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+
+
+#birnbaum data
+
+
+birn <- read.csv('birnbaum.som.data.rev.csv', skip=2, header = T)
+birn$av <- rowMeans(birn[, 5:ncol(birn)])
+birn$lgAV <- log(birn$av)
+nrow(birn[birn$lgAV>5,])
+
+ggplot(data = birn, mapping = aes(log(av), alpha=0.3))+geom_density() #allhave similar distribution
+
+arath_root_reference_birn <- birn[birn$lgAV>5,'Gene.ID']
+
+
+ORA_root_ARATHbirn <- lapply(seq_along(deg_arath), function(i) {
+  fora(pathways = al, 
+       genes = deg_arath[[i]], # genes in go_term i
+       universe = arath_root_reference_birn, # all genes expressed in leaves
+       minSize = 20, 
+       maxSize = 500) %>% 
+    mutate(cluster = names(deg_arath)[[i]]) # add intersection/complement names column
+  #mutate(go_cat = go_terms[match(go_names , go_terms), category])
+}) %>% 
+  data.table::rbindlist() %>% # combine tables
+  filter(padj < 0.05) %>% 
+  arrange(cluster, padj) %>% 
+  # Add additional columns from BP_db
+  left_join(distinct(go_terms, ids, go_names, category),
+            by = c("pathway" = "ids"))
+
+
+
+#all arath ids?
+
+library(SummarizedExperiment)
+
+load("/Users/francisco/Downloads/E-CURD-1-atlasExperimentSummary.Rdata")
+se <- experiment_summary[[1]]
+se <- se[,se$organism_part==unique(se$organism_part)[[1]] ]
+se <- se[,se$developmental_stage==unique(se$developmental_stage)[[1]] ]
+se
+
+#cadmium treatment arabidopsis
+
+
+#Conserved Gene Expression Programs in Developing Roots from Diverse Plant
+
+
+
+```
+
+# Heatmap of genes in clusters
+```{r}
+source('../../make_heatmap.r')
+load('dd_objects.rmd')
+
+make_idx <- function(dds, nlib=4) {
+  dds<- estimateSizeFactors(dds)
+  idx <- rowSums( counts(dds, normalized=T)[,] > 0 ) >=nlib
+  return(idx)
+}
+
+df_mat <- counts(dd_root_nl.le)[rownames(dd_root_nl.le) %in% geneid_root_clusters[[1]],]
+df_mat <- t(scale(t(df_mat)))
+colnames(df_mat) <- unlist(lapply(colnames(df_mat), function(x) strsplit(x,  '_p')[[1]][1]))
+
+heatmap.2(x = df_mat)
+Heatmap(df_mat)
+df_long <- melt(df_mat[, 1:6], varnames = c( 'gene', 'library'), value.name = 'Zcounts')
+df_long <- data.table(df_long)
+
+ggplot(df_long[], aes(y=Zcounts, x=factor(library), colour=library) )+geom_point()
+
+df_res <- lapply(df_res, function(x) return(data.table(x)))
+
+df_long <- df_res$leaf_48h_0h[geneid %in% geneid_root_clusters[[3]],.(baseMeanA, baseMeanB, geneid)]
+
+df_long <- melt(df_long, id.vars = 3, measure.vars = 1:2, variable.name = 'baseMean', value.name = 'mean_exp')
+df_long <- data.table(df_long)
+
+ggplot(df_long[], aes(x=baseMean, y=mean_exp, group=geneid, colour=geneid, alpha=.1))+
+  geom_point()+geom_line()+theme(legend.position = 'none')
+
+
+```
+
