@@ -1,0 +1,2561 @@
+---
+title: "cd_transcriptome_draft_figures.rmd"
+author: "francisco.menendez.burns"
+date: "10/3/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+##Question 1: What genes are differentially expressed between genotypes?
+
+Categories in the leaf comparison:
+
+[1] "leaf_pa121_24h_0h"         "leaf_pa121_48h_0h"         "leaf_tsh660_24h_0h"        "leaf_tsh660_48h_0h"       
+[5] "leaf_pa121_tsh660_0h_0h"   "leaf_pa121_tsh660_24h_24h" "leaf_pa121_tsh660_48h_48h" "leaf_pa121_cd_no_cd"      
+[9] "leaf_tsh660_cd_no_cd"      "leaf_cd_no_cd"             "leaf_24h_0h"               "leaf_48h_0h"              
+[13] "leaf_tsh660.24h"           "leaf_tsh660.48h"
+ 
+Categories in the root comparisons:
+
+[1] "root_pa121_tsh660_0h_0h"   "root_pa121_tsh660_48h_48h" "root_pa121_48h_0h"         "root_tsh660_48h_0h"       
+[5] "root_48h_0h" 
+
+First question: Question: What genes are differentially expressed between genotypes?
+
+The main comparison to answer this question are: 
+[5] "leaf_pa121_tsh660_0h_0h"   "leaf_pa121_tsh660_24h_24h" "leaf_pa121_tsh660_48h_48h" 
+
+and : 
+
+[1] "root_pa121_tsh660_0h_0h"   "root_pa121_tsh660_48h_48h"
+
+These should be analyzed by observing the ranked list and GSEA enrichement as well as observing the list of DEG
+
+
+By comparing the overlap beween the upregulated and downlregulated genes in the following comparisons: 
+
+"leaf_pa121_24h_0h" and "leaf_tsh660_24h_0h"
+"leaf_pa121_48h_0h" and "leaf_tsh660_48h_0h"
+
+"root_pa121_48h_0h" and "root_tsh660_48h_0h"
+
+```{r}
+library(ggplot2)
+library(patchwork)
+pheno <- read.csv('Cadmium_platform_12nov2022b.csv')
+
+names(pheno) <- c('genotype', 'cd.solution', 'tissue',  'cd.measured', 'weight', 'row_label')
+
+pheno$genotype <- factor(pheno$genotype, unique(pheno$genotype), labels = c('PA121', 'TSH660'))
+pheno$cd.solution <- factor(pheno$cd.solution, unique(pheno$cd.solution), labels = c('0 PPM', '10 PPM'))
+pheno <- data.table::data.table(pheno)
+
+pheno_med <- aggregate(cd.measured ~ genotype + cd.solution + tissue, 
+  data=pheno, 
+  function(x) { 
+    c(med=median(x)) 
+})
+
+
+pheno_med <- pheno[, .(N=.N, median_cd=median(cd.measured), mean_cd=mean(cd.measured), median_w=median(weight), mean_w=mean(weight), sd_we=sd(weight), sd_cd=sd(cd.measured)), .(genotype, cd.solution, tissue) ]
+pheno_med[, .(sem_we=sd_we/sqrt(N), sem_cd=sd_cd/sqrt(N))]
+
+pheno_med[, sem_we:=sd_we/sqrt(N)]
+pheno_med[, ci_we:=qt(0.975, df = N - 1) * sem_we]
+
+pheno_med[, sem_cd:=sd_cd/sqrt(N)]
+pheno_med[, ci_cd:=qt(0.975, df = N - 1) * sem_cd]
+
+ph_leaves2 <- ggplot(data =  pheno[tissue=='Leaves', ], mapping = aes(x=genotype, y= cd.measured, fill= cd.solution))+
+  geom_boxplot(size=0.25, position = position_dodge(width = 1))+ 
+  geom_point( position = position_jitterdodge(jitter.width = .2, dodge.width = 1), alpha=0.5)+
+  ggplot2::annotate(geom = 'label', x =.75, y=10, label='0.27', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=200, label='92.1', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=10, label='0.38', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=25, label='8.2', size=2, color='black')+
+  theme_light()+
+  ggtitle('Leaves')+
+  scale_fill_manual(values = c('white', 'grey'))+
+  #ylab('Cd concentration (PPM)')+
+  xlab(element_blank())+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_text(hjust = -.2), axis.title.y = element_blank() , legend.position = 'none')+
+  scale_fill_discrete(name='Cd\ntreatments', type = c('white', 'grey'))+
+  guides(fill='none')+
+  annotate('text', x = 1.7, y=222.5, label=expression(paste('p=9.4630x10'^-4)), fontface='italic', size=2.5)+
+  geom_segment(aes(x = 1.25, xend = 2.25), y=215, yend=215, color = "black", linetype = "solid", linewidth=.25)+
+  geom_segment(aes(x = 1.25, xend = 1.25), y=212.5, yend=215, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)+
+  geom_segment(aes(x = 2.25, xend = 2.25), y=212.5, yend=215, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)
+
+#  theme( axis.title.x = element_blank(), legend.position = 'none', plot.title = element_text(size=10))
+
+ph_root2 <- ggplot(data =  pheno[tissue=='Roots',], mapping = aes(x=genotype, y= cd.measured, fill= cd.solution))+
+  geom_boxplot(size=0.25, position = position_dodge(width = 0.9))+ 
+  geom_point( position = position_jitterdodge(jitter.width = .2, dodge.width = 1), alpha=0.5)+
+  theme_light()+
+  ylab('Cd concentration (PPM)')+
+  xlab(element_blank())+
+  #xlab('Genotype')+
+  ggtitle(label = "Roots")+
+  ggplot2::annotate(geom = 'label', x =.75, y=100, label='2.79', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=1700, label='1449.55', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=100, label='1.55', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=1250, label='895.1', size=2, color='black')+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_blank(), legend.position = 'none')+
+  scale_fill_discrete(name='Cd treatments', type =  c('white', 'grey'))+
+  guides(color='none')+
+  annotate('text', x = 1.7, y=1925, label=expression(paste('p=1.543x10'^-6)), fontface='italic', size=2.5)+
+  geom_segment(aes(x = 1.25, xend = 2.25), y=1850, yend=1850, color = "black", linetype = "solid", linewidth=.25)+
+  geom_segment(aes(x = 1.25, xend = 1.25), y=1825, yend=1850, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)+
+  geom_segment(aes(x = 2.25, xend = 2.25), y=1825, yend=1850, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)
+  
+
+#  theme(axis.text.x = element_text(size=9), axis.title.x = element_blank(), axis.title.y = element_blank(), plot.title =  element_text(size=10), legend.position = c(-1, 250))+
+ # scale_fill_discrete(name='Cd\ntreatments', type =  c('white', 'grey')) 
+  #guides(color='none')
+
+####
+
+#ggsave(filename = 'figure1_pheno_boxes_poster', plot = pheno_boxes2, device = 'pdf', width = 12, height = 16, units = 'cm', dpi = 300)
+
+#ph_leaves3 <- ph_leaves2+theme(axis.text.x = element_blank(), axis.title.x = element_text(hjust = 1.2), legend.position = 'none', plot.title = element_text(size=10))
+
+#pheno_boxes3 <- ph_leaves3+ph_root2
+#ggsave(filename = 'figure1_pheno_boxes_plantbio', plot = pheno_boxes3, device = 'pdf', width = 24, height = 12, units = 'cm', dpi = 300)
+
+
+w_root <- ggplot(data =  pheno[tissue=='Roots',], mapping = aes(x=genotype, y= weight, fill= cd.solution))+
+  geom_boxplot(position = position_dodge(width = 0.9), size=0.5)+ 
+  geom_point( position = position_jitterdodge(jitter.width = .1, dodge.width = 1), alpha=0.5)+
+  theme_light()+
+  ylab('Plant Mass (g)')+
+  xlab('Genotype')+ggtitle("Cacao Root Tissue")+
+  annotate(geom = 'label', x =.75, y=10.2, label=pheno_med[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', mean_w], size=2, color='black')+
+  annotate(geom = 'label', x =1.25, y=6, label=prettyNum(pheno_med[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', mean_w], digits=3), size=2, color='black')+
+  annotate(geom = 'label', x =1.7, y=7.5, label=prettyNum(pheno_med[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', mean_w], digits=3), size=2, color='black')+
+  annotate(geom = 'label', x =2.25, y=5, label=prettyNum(pheno_med[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', mean_w], digits=3), size=2, color='black')+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_blank(), plot.title =  element_blank(), legend.position = 'bottom')+
+  scale_fill_discrete(name='Cd treatments', type =  c('white', 'grey'))+
+  guides(color='none')
+
+w_leaves <- ggplot(data =  pheno[tissue=='Leaves',], mapping = aes(x=genotype, y= weight, fill= cd.solution))+
+  geom_boxplot(position = position_dodge(width = 0.9), size=0.5)+ 
+  geom_point( position = position_jitterdodge(jitter.width = .1, dodge.width = 1), alpha=0.5)+
+  theme_light()+
+  ylab('Plant Mass (g)')+
+  xlab('Genotype')+ggtitle("Cacao Leaf Tissue")+
+  annotate(geom = 'label', x =.75, y=30, label=prettyNum(pheno_med[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', mean_w], digits=3), size=2, color='black')+
+  annotate(geom = 'label', x =1.25, y=14, label=prettyNum(pheno_med[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', mean_w], digits=3), size=2, color='black')+
+  annotate(geom = 'label', x =1.7, y=19, label=prettyNum(pheno_med[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', mean_w], digits=3), size=2, color='black')+
+  annotate(geom = 'label', x =2.25, y=13, label=prettyNum(pheno_med[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', mean_w], digits=3), size=2, color='black')+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_text(hjust = -1), axis_text=element_blank(), plot.title =  element_blank(), legend.position = 'none')+
+  scale_fill_discrete(name='Cd\ntreatments', type = c('white', 'grey'))+
+  guides(fill='none')
+
+pheno_plot0 <- (ph_leaves2+ph_root2)/(w_leaves+w_root) + patchwork::plot_annotation(tag_levels = 'A')
+
+pheno_plot <- (ph_root2+ph_leaves2)+plot_annotation(tag_levels = 'A')
+
+ggsave(filename = 'figure_pheno1.pdf', plot = pheno_plot, device = 'pdf', width = 18, height = 8, units = 'cm', dpi = 300)
+
+ggsave(filename = 'figure_pheno1.2.pdf', plot = pheno_plot, device = 'pdf', width = 18, height = 8, units = 'cm', dpi = 300)
+
+source('design.matrix.dots.R')
+
+pheno_plot2 <- (ph_root2+ph_leaves2)/(panelb)+plot_annotation(tag_levels = 'A')+plot_layout(heights = c(4,6))
+pheno_plot4 <- (ph_root2+ph_leaves2+w_root+w_leaves)+plot_annotation(tag_levels = 'A')
+pheno_plot5 <- (ph_root2+ph_leaves2+weight_root_ci+weight_leaf_ci)+plot_annotation(tag_levels = 'A')
+
+ggsave(filename = 'figure_pheno2.pdf', plot = pheno_plot2, device = 'pdf', width = 18, height = 14, units = 'cm', dpi = 300)
+
+ggsave(filename = 'figure_pheno4.pdf', plot = pheno_plot4, device = 'pdf', width = 18, height = 14, units = 'cm', dpi = 300)
+ggsave(filename = 'figure_pheno5.pdf', plot = pheno_plot5, device = 'pdf', width = 18, height = 14, units = 'cm', dpi = 300)
+
+
+```
+
+
+#barcharts
+
+```{r}
+
+library(ggbreak)
+
+ph_leaves3 <- ggplot(data =  pheno_med[tissue=='Leaves',], mapping = aes(x=genotype, y= mean_cd, fill= cd.solution))+
+  #geom_boxplot(size=0.25, position = position_dodge(width = 1))+ 
+  geom_bar(stat='identity', position = position_dodge(width = 0.9), color='black', linewidth=0.2) +  # Adjust the alpha for better visualization
+  geom_point(data = pheno[tissue=='Leaves',], mapping = aes(x=genotype, y=cd.measured), position = position_jitterdodge(jitter.width = .2, dodge.width = 1), alpha=0.5)+
+  geom_errorbar(mapping = aes(ymin = mean_cd - ci_cd, ymax = mean_cd + ci_cd), 
+                width = 0.2, position = position_dodge(width = 0.9), color = "black", linewidth=0.2)+
+  #ggbreak::scale_y_break(c(3, 15),  scale=1)+
+  ggplot2::annotate(geom = 'label', x =.75, y=25, label='0.3', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=150, label='97.4', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=25, label='0.5', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=100, label='15.3', size=2, color='black')+
+  theme_light()+
+  ggtitle('Leaves')+
+  scale_fill_manual(values = c('white', 'grey'))+
+  #ylab('Cd concentration (PPM)')+
+  xlab(element_blank())+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_text(hjust = -.2), axis.title.y = element_blank() , legend.position = 'none')+
+  scale_fill_discrete(name='Cd\ntreatments', type = c('white', 'grey'))+
+  guides(fill='none')+
+  annotate('text', x = 1.7, y=222.5, label=expression(paste('p=9.4630x10'^-4)), fontface='italic', size=2.5)+
+  geom_segment(aes(x = 1.25, xend = 2.25), y=215, yend=215, color = "black", linetype = "solid", linewidth=.25)+
+  geom_segment(aes(x = 1.25, xend = 1.25), y=212.5, yend=215, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)+
+  geom_segment(aes(x = 2.25, xend = 2.25), y=212.5, yend=215, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)
+
+ph_leaves3
+#  theme( axis.title.x = element_blank(), legend.position = 'none', plot.title = element_text(size=10))
+
+ph_root3 <- ggplot(data =  pheno_med[tissue=='Roots',],  mapping = aes(x=genotype, y= mean_cd, fill= cd.solution))+
+  geom_bar(stat='identity', position = position_dodge(width = 0.9), color='black', linewidth=0.2) +  # Adjust the alpha for better visualization
+  geom_point(data=pheno[tissue=='Roots',], mapping = aes(x=genotype, y=cd.measured), position = position_jitterdodge(jitter.width = .2, dodge.width = 1), alpha=0.5)+
+  geom_errorbar(mapping = aes(ymin = mean_cd - ci_cd, ymax = mean_cd + ci_cd), 
+                width = 0.2, position = position_dodge(width = 0.9), color = "black", linewidth=0.2)+
+  #ggbreak::scale_y_break(c(30, 250),  scale=1)+
+  theme_light()+
+  ylab('Cd concentration (PPM)')+
+  xlab(element_blank())+
+  #xlab('Genotype')+
+  ggtitle(label = "Roots")+
+  ggplot2::annotate(geom = 'label', x =.75, y=25, label='7.5', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=1700, label='1416.3', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=12.5, label='1.7', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=1250, label='894.8', size=2, color='black')+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_blank(), legend.position = 'none')+
+  scale_fill_discrete(name='Cd treatments', type =  c('white', 'grey'))+
+  guides(color='none')+
+  annotate('text', x = 1.7, y=1925, label=expression(paste('p=1.543x10'^-6)), fontface='italic', size=2.5)+
+  geom_segment(aes(x = 1.25, xend = 2.25), y=1850, yend=1850, color = "black", linetype = "solid", linewidth=.25)+
+  geom_segment(aes(x = 1.25, xend = 1.25), y=1825, yend=1850, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)+
+  geom_segment(aes(x = 2.25, xend = 2.25), y=1825, yend=1850, color = "black", linetype = "solid", linewidth=.25, alpha=0.5)
+##### weight with the CI
+ph_root3
+
+weight_root_ci <- ggplot(data = pheno_med[tissue=='Roots',], mapping = aes(x = genotype, y = mean_w, fill = cd.solution)) +
+  geom_bar(stat='identity', position = position_dodge(width = 0.9), color='black', linewidth=0.2) +  # Adjust the alpha for better visualization
+  #geom_jitter(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.9), size = 0.5, alpha = 0.5) +
+  geom_errorbar(mapping = aes(ymin = mean_w - ci_we, ymax = mean_w + ci_we), 
+                width = 0.2, position = position_dodge(width = 0.9), color = "black", linewidth=0.2)+
+  geom_point(data=pheno[tissue=='Roots',],alpha=0.5, mapping = aes(y = weight),  
+             position = position_jitterdodge(jitter.width = .2, dodge.width = 1))+
+  ggplot2::annotate(geom = 'label', x =.75, y=13, label='7.6', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=7, label='2.4', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=11, label='4.4', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=5, label='2.6', size=2, color='black')+
+  scale_fill_discrete(name='Cd\ntreatments', type = c('white', 'grey'))+
+  ylab('Plant Mass (g)')+
+  xlab('Genotype')+#ggtitle("Cacao Root Tissue")+
+  theme_light()+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_blank(), legend.position = 'bottom')
+
+weight_leaf_ci <- ggplot(data = pheno_med[tissue=='Leaves',], mapping = aes(x = genotype, y = mean_w, fill = cd.solution)) +
+  #geom_boxplot(data=pheno[tissue=="Leaves",], mapping = aes(x=genotype, y=weight), position = position_dodge(width = 0.9), color='black', linewidth=0.2) +  # Adjust the alpha for better visualization
+  geom_bar(stat='identity', position = position_dodge(width = 0.9), color='black', linewidth=0.2) +  # Adjust the alpha for better visualization
+  #geom_jitter(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.9), size = 0.5, alpha = 0.5) +
+  geom_errorbar(mapping = aes(ymin = mean_w - ci_we, ymax = mean_w + ci_we), 
+                width = 0.2, position = position_dodge(width = 0.9), color = "black", linewidth=0.2)+
+  geom_point(data=pheno[tissue=='Leaves',], alpha=0.5, mapping = aes(y = weight),  
+             position = position_jitterdodge(jitter.width = .2, dodge.width = 1))+
+  ggplot2::annotate(geom = 'label', x =.75, y=33, label='25.3', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.25, y=12.5, label='7.3', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =1.7, y=26, label='11.2', size=2, color='black')+
+  ggplot2::annotate(geom = 'label', x =2.25, y=15, label='6.2', size=2, color='black')+
+  ylab(element_blank())+
+  xlab('Genotype')+
+  scale_fill_discrete(name='Cd\ntreatments', type = c('white', 'grey'))+
+  #ggtitle("Cacao Shoot Tissue")+
+  theme_light()+
+  theme(axis.text.x = element_text(size=9), axis.title.x = element_text(hjust = -.2), axis.title.y = element_blank() , legend.position = 'none')+
+  guides(fill='none')
+
+
+weight_root_ci+weight_leaf_ci
+
+pheno_plot6 <- (ph_root3+ph_leaves3+weight_root_ci+weight_leaf_ci)+plot_annotation(tag_levels = 'A')
+ggsave(filename = 'figure_pheno6.pdf', plot = pheno_plot6, device = 'pdf', width = 18, height = 14, units = 'cm', dpi = 300)
+
+```
+
+#PART 2 of the pheno plot (experimental design)
+```{r}
+library(data.table)
+
+smpl_mat <- data.frame(y=factor(x = rep(c('leaf_pa121', 'leaf_tsh660', 'root_pa121', 'root_tsh660'), times=3), 
+                                levels=c('leaf_pa121', 'root_pa121', 'leaf_tsh660', 'root_tsh660')[c(2, 4, 1, 3)],
+                                labels=c('PA121 roots', 'TSH660 roots', 'PA121 leaves', 'TSH660 leaves' ), 
+                                ordered = T),
+                       x=factor(rep(c('0', '24', '48'), each=4),
+                                labels=c('0 hours ACT', '24 hours ACT', '48 hours ACT')))
+
+smpl_mat <- data.table(smpl_mat)
+
+
+panelb <- ggplot(smpl_mat, aes(x=x, y=y) )+geom_point(colour='grey')+
+  geom_vline(xintercept = 1, colour='red')+
+  geom_point(data=smpl_mat[x=='0 hours ACT' & y=='PA121 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='24 hours ACT' & y=='PA121 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='48 hours ACT' & y=='PA121 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='0 hours ACT' & y=='TSH660 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='24 hours ACT' & y=='TSH660 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='48 hours ACT' & y=='TSH660 leaves'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='0 hours ACT' & y=='PA121 roots'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='48 hours ACT' & y=='PA121 roots'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='0 hours ACT' & y=='TSH660 roots'], aes(x=x, y=y, cex=2))+
+  geom_point(data=smpl_mat[x=='48 hours ACT' & y=='TSH660 roots'], aes(x=x, y=y, cex=2))+
+  geom_label(label='Media change\nto 10 PPM Cd', mapping = aes(x=1, y = 2.5), colour='darkred', cex=2.5, )+
+  geom_rect(aes(xmin=-Inf, xmax=Inf, ymin=0.5, ymax=2.5), alpha = 0.02, fill='bisque2')+
+  geom_rect(aes(xmin=-Inf, xmax=Inf, ymin=2.5, ymax=4.5), alpha = 0.02, fill='darkgreen')+
+  theme_minimal()+
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(), legend.position = 'none')
+
+
+
+
+ggsave('panelb_fig1.pdf', plot = panelb, device = 'pdf', width = 18, height = 6, units = 'cm', dpi = 300)
+
+
+```
+
+
+#statistical tests between samples 
+
+```{r}
+# statistical tests forthe differences beween Cd concentration and weight
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured])
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured])
+
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured])
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured])
+
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured])
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured]) 
+
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured])
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured]) 
+
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured])
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured])
+
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured])
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured])
+
+wilcox.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured])
+wilcox.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured])
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', cd.measured])
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', cd.measured], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', cd.measured])
+
+
+#Weight
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+wilcox.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+wilcox.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+t.test(pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', weight])
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', weight])
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', weight], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='TSH660', weight], alternative = 'l')
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', weight], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='TSH660', weight], alternative = 'l')
+
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', weight], alternative = 'l')
+t.test(pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', weight], pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', weight], alternative = 'l')
+
+wilcox.test(pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+
+wilcox.test(x = pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='PA121', weight], y=pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+
+wilcox.test(pheno[cd.solution=='0 PPM' & tissue=='Leaves' & genotype=='PA121', weight], pheno[cd.solution=='10 PPM' & tissue=='Leaves' & genotype=='TSH660', weight])
+
+wilcox.test(x = pheno[cd.solution=='0 PPM' & tissue=='Roots' & genotype=='PA121', weight], y=pheno[cd.solution=='10 PPM' & tissue=='Roots' & genotype=='TSH660', weight])
+
+
+# remove the x axis title in the cd concertation part, remove the legend label in one and improve position, remove the tissue label subtitle
+
+pheno[tissue=='Leaves', .(mean_w=mean(weight)), .(genotype, cd.solution)][2, 3]/
+  pheno[tissue=='Leaves', .(mean_w=mean(weight)), .(genotype, cd.solution)][1, 3] #weight diff PA121
+
+pheno[tissue=='Leaves', .(mean_w=mean(weight)), .(genotype, cd.solution)][4, 3]/
+  pheno[tissue=='Leaves', .(mean_w=mean(weight)), .(genotype, cd.solution)][3, 3] #weight diff TSH660
+
+pheno[tissue=='Roots', .(mean_w=mean(weight)), .(genotype, cd.solution)][2, 3]/
+  pheno[tissue=='Roots', .(mean_w=mean(weight)), .(genotype, cd.solution)][1, 3] #weight diff PA121
+
+pheno[tissue=='Roots', .(mean_w=mean(weight)), .(genotype, cd.solution)][4, 3]/
+  pheno[tissue=='Roots', .(mean_w=mean(weight)), .(genotype, cd.solution)][3, 3] #weight diff TSH660
+
+
+
+shapiro_pheno <- pheno[, .(w.sh.p.val=shapiro.test(weight)$p.value, cd.sh.p.val=shapiro.test(cd.measured)$p.value), .(genotype, cd.solution, tissue)]
+
+
+qqnorm(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Leaves' &pheno$cd.solution=='10 PPM', weight], main = 'TSH660 leaf weight')
+qqline(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Leaves' &pheno$cd.solution=='10 PPM', weight])
+text(label=paste('shapiro\ntest p-value=\n', prettyNum(shapiro_pheno[genotype=='TSH660' & cd.solution=='10 PPM' & tissue=='Leaves', cd.sh.p.val])), x=-1, y=9)
+
+
+par(mfrow=c(2,2))
+qqnorm(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured'], main = 'TSH660 leaves')
+qqline(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured'])
+text(label=paste('shapiro\ntest p-value=\n', prettyNum(sh.tsh.leaves$p.value)), x=-1, y=50)
+
+qqnorm(pheno[genotype=='PA121' & tissue=='Leaves' & cd.solution=='10 PPM', cd.measured], main='PA121 leaves')
+qqline(pheno[pheno$genotype=='PA121' & pheno$tissue=='Leaves' &pheno$cd.solution=='10 PPM', cd.measured])
+text(label=paste('shapiro\ntest p-value=\n', prettyNum(shapiro_pheno[genotype=='PA121' & cd.solution=='10 PPM' & tissue=='Leaves', cd.sh.p.val])), x=-1, y=150)
+
+qqnorm(pheno[pheno$genotype=='TSH 660' & pheno$tissue=='Roots' &pheno$cd.solution==10, 'cd.measured'], main = 'TSH660 roots')
+qqline(pheno[pheno$genotype=='TSH 660' & pheno$tissue=='Roots' &pheno$cd.solution==10, 'cd.measured'])
+text(label=paste('shapiro\ntest p-value=\n', prettyNum(sh.tsh.roots$p.value)), x=-1, y=1000)
+
+qqnorm(pheno[pheno$genotype=='PA 121' & pheno$tissue=='Roots' &pheno$cd.solution==10, 'cd.measured'], main='PA121 roots')
+qqline(pheno[pheno$genotype=='PA 121' & pheno$tissue=='Roots' &pheno$cd.solution==10, 'cd.measured'])
+text(label=paste('shapiro\ntest p-value=\n', prettyNum(sh.pa.roots$p.value)), x=-1, y=1500)
+
+
+var(pheno[pheno$genotype=='TSH 660' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured'])/var(pheno[pheno$genotype=='PA 121' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured'])
+
+#t.test(pheno[pheno$genotype=='TSH 660' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured'], pheno[pheno$genotype=='PA 121' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured']) #cannot be used
+#t.test(pheno[pheno$genotype=='TSH 660' & pheno$tissue=='Roots' &pheno$cd.solution==10, 'cd.measured'], pheno[pheno$genotype=='PA 121' & pheno$tissue=='Leaves' &pheno$cd.solution==10, 'cd.measured']) #assumptions are not met
+
+wilcox.test(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Leaves' & pheno$cd.solution=='10 PPM', 'cd.measured'], pheno[pheno$genotype=='PA121' & pheno$tissue=='Leaves' &pheno$cd.solution=='10 PPM', 'cd.measured'])
+wilcox.test(pheno[pheno$genotype=='TSH660' & pheno$tissue=='Roots' &pheno$cd.solution=='10 PPM', 'cd.measured'], pheno[pheno$genotype=='PA121' & pheno$tissue=='Roots' &pheno$cd.solution=='10 PPM', 'cd.measured'])
+
+pheno_boxes <- ph_leaves+ph_roots 
+ggsave(filename = 'figure1_pheno_boxes', plot = pheno_boxes, device = 'pdf', width = 8, height = 8, units = 'cm', dpi = 300)
+
+phe_cor <- ggplot(data = pheno[,], mapping = aes(cd.solution, cd.measured, color=genotype, shape=tissue))+geom_point()+geom_smooth(method = 'lm')+theme(legend.position = 'none')
+phe_w <- ggplot(data = pheno[pheno$cd.solution==10,], mapping = aes(weight, cd.measured, color=genotype, shape=tissue))+geom_point()+geom_smooth(method = 'lm')
+
+cd_weight <- lm(cd.measured~weight, pheno)
+plot(residuals.lm(object = cd_weight))
+abline(0, 0)
+
+cd_mod <- lm(cd.measured~cd.solution+genotype+tissue+weight, data = pheno)
+
+anova(cd_mod)
+
+phe_cor+phe_w
+
+c('Gentotype', 'Cd in solution (PPM)', 'Tissue',  'Cd measured (PPM)', 'Weight (g)', 'row_label')
+
+```
+
+## Figures for poster
+
+## PCA PLOT 
+
+```{r}
+
+library(DESeq2)
+library(ggplot2)
+library(gridExtra)
+
+library('ggpubr')
+library(cowplot)
+
+load('deseq_datasets_all.rmd') #load the deseq data sets to build the PCA
+
+#load('root_dispersions_assembled_tran.rda')
+
+# root assembled transcripts -> last exon 
+
+vsd.rle <- vst(dds_root.le, blind = F) #root last exo (rle) 
+rv <- rowVars(assay(vsd.rle))
+select <- order(rv, decreasing = T)[seq_len(min(500, length(rv)))]
+pca.rle <- prcomp(t(assay(vsd.rle)[select,]), center = T, scale. = F)
+summary(pca.rle)    
+#plot(pr_pca$x)
+variance = pca.rle$sdev^2 / sum(pca.rle$sdev^2)
+variance = round(variance, 3) * 100
+fac = factor(apply(as.data.frame(colData(vsd.rle)[, c("var", 'block', 'ti', 'tis'), drop=FALSE]), 1, paste, collapse=" : "))
+x_pca <- as.data.frame(pca.rle$x)
+x_pca$var <- sapply(rownames(x_pca), function(x) {paste(c(strsplit(x, split = '_')[[1]][1], strsplit(x, split = '_')[[1]][2]), collapse = '')})
+x_pca$ti <- colData(vsd.rle)$ti
+x_pca$tank <- colData(vsd.rle)$tank
+x_pca$tis <- colData(vsd.rle)$tis
+
+rle.pca1_2 <- ggplot(x_pca, aes(x=PC1, y=PC2, shape=var, color=tis))+
+  geom_point()+
+  geom_text(label=x_pca$ti, cex=3, hjust=1.5)+
+  stat_ellipse(mapping = aes(group=var), linetype=3)+
+  stat_ellipse(mapping = aes(group=tis))+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC2 (", variance[2], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  guides(shape='none', color='none')+
+  theme_minimal()+
+  theme(plot.title = element_text(size=10, hjust = .7, face = 'italic'))+
+  ggtitle(label = 'Root and Leaf PCA with PC1 and PC2')
+
+rle.pca1_3 <- ggplot(x_pca, aes(x=PC1, y=PC3, shape=var, color=tis))+
+  geom_point()+
+  geom_text(label=x_pca$ti, cex=3, hjust=1.5)+
+  stat_ellipse(mapping = aes(group=var), linetype=3)+
+  stat_ellipse(mapping = aes(group=tis))+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC3 (", variance[3], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  theme_minimal()+
+  theme(plot.title = element_text(size=10, hjust = .7, face = 'italic'))+
+  ggtitle(label = 'Root and Leaf PCA with PC1 and PC3')+
+  scale_shape_discrete(name='Genotype')+
+  scale_color_discrete(name='Tissue')
+
+
+
+#load('leaf_dispersions_assembled_tran.rda')
+
+vsd.lle <- vst(dds_leaf.le, blind = F) #leaf assembled transcripts (lat) -> lead last exon (lle)
+rv <- rowVars(assay(vsd.lle))
+select <- order(rv, decreasing = T)[seq_len(min(500, length(rv)))]
+pca.lle <- prcomp(t(assay(vsd.lle)[select,]), center = T, scale. = F)
+summary(pca.lle)
+#plot(pr_pca$x)
+variance = pca.lle$sdev^2 / sum(pca.lle$sdev^2)
+variance = round(variance, 3) * 100
+fac = factor(apply(as.data.frame(colData(vsd.lle)[, c("var", 'block', 'ti', 'tis'), drop=FALSE]), 1, paste, collapse=" : "))
+x_pca <- as.data.frame(pca.lle$x)
+x_pca$var <- sapply(rownames(x_pca), function(x) {paste(c(strsplit(x, split = '_')[[1]][1], strsplit(x, split = '_')[[1]][2]), collapse = '')})
+x_pca$ti <- colData(vsd.lle)$ti
+x_pca$tank <- colData(vsd.lle)$tank
+x_pca$tis <- colData(vsd.lle)$tis
+
+lle.pca1_2 <- ggplot(x_pca, aes(x=PC1, y=PC2, color=tis, shape = var))+
+  geom_point()+
+  stat_ellipse(mapping = aes(group=var), linetype = 3)+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC2 (", variance[2], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  geom_text(label=x_pca$ti, cex=3, hjust=1.5)+
+  guides(shape='none', color='none')+
+  theme_minimal()+
+  theme(plot.title = element_text(size=10, hjust = .5, face = 'italic'))+
+  ggtitle(label = 'Leaf PCA with PC1 and PC2')
+
+lle.pca1_3 <- ggplot(x_pca, aes(x=PC1, y=PC3, color=tis, shape = var))+
+  geom_point()+
+  stat_ellipse(mapping = aes(group=var), linetype = 3)+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC3 (", variance[3], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  geom_text(label=x_pca$ti, cex=3, hjust=1.5)+
+  guides(shape='none', color='none')+
+  theme_minimal()+
+  theme(plot.title = element_text(size=10, hjust = 0.5, face = 'italic'))+
+  ggtitle(label = 'Leaf PCA with PC1 and PC3')
+
+figure_pca <- (rle.pca1_2 + rle.pca1_3)/(lle.pca1_2+lle.pca1_3)+patchwork::plot_annotation(tag_levels = 'A')
+ggsave(filename = 'figure_2_pca_montp_poster', plot = figure_pca, device = 'pdf', width = 21, height = 21, units = 'cm', dpi = 300)
+
+
+figure.pca <- ggarrange(lle.pca1_2, lle.pca1_3, rle.pca1_2, rle.pca1_3, labels = c("A", "B", 'C', 'D'),
+          common.legend = TRUE, legend = "bottom")
+
+ggsave(filename = 'pca_le.figure_poster.png', plot=figure.pca, device = 'png', width = 7, height = 7, units = 'in', dpi = 300, scale = 1)
+
+
+pca_12 <- ggplot(x_pca, aes(x=PC1, y=PC2, shape=var, color=tis, alpha=.5))+
+  geom_point(cex=6)+
+  geom_text(label=x_pca$ti, cex=9, hjust=1.5)+
+  stat_ellipse(mapping = aes(group=var), linetype=3, cex=2)+
+  stat_ellipse(mapping = aes(group=tis), cex=3)+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC2 (", variance[2], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  theme_minimal()+
+  theme(text = element_text(size=30))+
+  guides(color='none', shape='none')
+
+
+pca_13 <- ggplot(x_pca, aes(x=PC1, y=PC3, shape=var, color=tis, alpha=.5))+
+  geom_point(cex=6)+
+  geom_text(label=x_pca$ti, cex=9, hjust=1.5)+
+  stat_ellipse(mapping = aes(group=var), linetype=3, cex=2)+
+  stat_ellipse(mapping = aes(group=tis), cex=3)+
+  xlab(label = list(paste("PC1 (", variance[1], "%)", sep=""))[[1]][1])+
+  ylab(label = list(paste("PC3 (", variance[3], "%)", sep=""))[[1]][1])+
+  scale_alpha(guide='none')+
+  theme_minimal()+
+  theme(text = element_text(size=30), legend.position = 'bottom', legend.justification = c(-0.5), legend.box = 'vertical')
+  
+pca_root_leaf <- pca_12+pca_13+patchwork::plot_annotation(tag_levels = 'A')
+ggsave(filename= 'pca_plantBio', plot = pca_root_leaf, device = 'pdf', width = 26, height = 14)
+
+
+```
+
+
+### supplemental Figure 2: count distro and table 
+
+```{r}
+load('df_leaf_geno.rda')
+load('df_root_geno.rda')
+
+library(ggplot2)
+library(ggplotify)
+library(ComplexUpset)
+library(DESeq2)
+library(reshape2)
+library(plyr)
+
+annot <- read.table('TC_B97_consensusV2_rev2021_annotated.gff3', skip = 2, fill = T, stringsAsFactors = F)
+annot <- annot[grep('gene', annot$V3), ]
+annot$id <- sapply(strsplit(annot$V9, split = ';') , function(x) x[1])
+annot$id <- sapply(strsplit(annot$id, split = '=') , function(x) x[2])
+annot$annot <- apply(annot, 1, function(x) paste(x[9:length(x)], collapse = ' '))
+annot <- annot[,c('id', 'annot')]
+
+
+load('crv3_ids.rda') #goterm, crv3 annot
+
+#figure 2
+# density of mapped reads per gene
+# roots
+
+load('dd_objects.rmd')
+
+cnt_root <- dd_root_nl.le
+cnt_root <- estimateSizeFactors(dd_root_nl.le)
+cnt_root <- counts(cnt_root, normalized = T)
+values = as.matrix(counts(dd_root_nl.le))
+
+# Adds a little noise to each element to avoid the
+# clustering function failure on zero variance rows.
+values = jitter(values, factor = 1, amount = 0.00001)
+
+# Normalize each row to a z-score
+zscores = t(scale(t(values)))
+# Turn the data into a matrix for heatmap2.
+zscores = as.matrix(zscores)
+zscores <- melt(zscores)
+names(zscores) <- c('Gene', 'Library', 'Counts')
+zscores$Genotype <- unlist(lapply(as.character(zscores$Library), function(x) strsplit(x, '_')[[1]][1]))
+
+
+ggplot(data = zscores, mapping = aes(x=Counts, fill=Library, alpha=0.1))+
+  geom_density(bins = 150)+
+  facet_wrap(facets = ~Genotype, nrow = 2)+
+  theme_minimal()+
+  xlab(label = 'Gene Counts (Z-score Normalized)')+
+  ylab('Absolute frequency')
+
+cnt_root <- melt(cnt_root)
+names(cnt_root) <- c('Gene', 'Library', 'Counts')
+cnt_root$Genotype <- unlist(lapply(as.character(cnt_root$Library), function(x) strsplit(x, '_')[[1]][1]))
+cnt_root$Genotype <- factor(cnt_root$Genotype, unique(cnt_root$Genotype), labels = c('PA121', 'TSH660'))
+cnt_root$Time <- unlist(lapply(as.character(cnt_root$Library), function(x) strsplit(x, '_')[[1]][3]))
+cnt_root$Time <- factor(cnt_root$Time, unique(cnt_root$Time), labels = c('0 hours ACT', '48 hours ACT'))
+
+ggplot(data = cnt_root, mapping = aes(x=log(Counts), fill=Time, alpha=0.3))+
+  geom_histogram(bins = 150)+
+  facet_wrap(facets = ~Genotype, nrow = 2)+
+  theme_minimal()+
+  xlab(label = 'Root Gene Counts (LogN)')+
+  ylab('Absolute frequency')+
+  guides(alpha='none')
+
+#leaves
+cnt_leaf <- dd_leaf.le
+cnt_leaf <- estimateSizeFactors(dd_leaf.le)
+cnt_leaf <- counts(cnt_leaf, normalized = T)
+cnt_leaf <- melt(cnt_leaf)
+names(cnt_leaf) <- c('Gene', 'Library', 'Counts')
+cnt_leaf$Genotype <- unlist(lapply(as.character(cnt_leaf$Library), function(x) strsplit(x, '_')[[1]][1]))
+cnt_leaf$Genotype <- factor(cnt_leaf$Genotype, unique(cnt_leaf$Genotype), labels = c('PA121', 'TSH660'))
+cnt_leaf$Time <- unlist(lapply(as.character(cnt_leaf$Library), function(x) strsplit(x, '_')[[1]][3]))
+cnt_leaf$Time <- factor(cnt_leaf$Time, unique(cnt_leaf$Time), labels = c('0 hours ACT', '24 hours ACT', '48 hours ACT'))
+
+ggplot(data = cnt_leaf, mapping = aes(x=log(Counts), fill=Time, alpha=0.3))+
+  geom_histogram(bins = 150)+
+  facet_wrap(facets = ~Genotype, nrow = 2)+
+  theme_minimal()+
+  xlab(label = 'Leaf Gene Counts (LogN)')+
+  ylab('Absolute frequency')+
+  guides(alpha='none')
+
+#with all libraries
+
+load('counts_le_new.txt') #load combined names data
+load('expsum_le_new')
+# model full
+row.names(counts) <- counts$Geneid
+counts <- counts[, c(-1,-grep('T8', colnames(counts)))]
+
+dd_all <- DESeqDataSetFromMatrix(countData = counts[], colData = expsum,
+                                 design =  ~ 1+ tissue + genotype + time + block + genotype:tissue + genotype:time + genotype:block)
+dd_all <- estimateSizeFactors(dd_all)
+cnts <- counts(dd_all, normalized=T)
+cnts <- melt(cnts)
+names(cnts) <- c('Gene', 'Library', 'Counts')
+cnts$Genotype <- unlist(lapply(as.character(cnts$Library), function(x) strsplit(x, '_')[[1]][1]))
+cnts$Genotype <- factor(cnts$Genotype, unique(cnts$Genotype), labels = c('PA121', 'TSH660'))
+cnts$Time <- unlist(lapply(as.character(cnts$Library), function(x) strsplit(x, '_')[[1]][3]))
+cnts$Time <- factor(cnts$Time, unique(cnts$Time), labels = c('0 hours\nACT', '24 hours\nACT', '48 hours\nACT'))
+cnts$Tissue <- unlist(lapply(as.character(cnts$Library), function(x) strsplit(x, '_')[[1]][5]))
+cnts$Tissue <- factor(cnts$Tissue, unique(cnts$Tissue), labels = c('Leaf', 'Root'))
+
+figure1_frequency_histogram <- ggplot(data = cnts, mapping = aes(x=log(Counts), fill=Time, alpha=0.3))+
+  geom_histogram(bins = 150, position = 'identity')+
+  facet_wrap(facets = ~Genotype + Tissue, nrow = 4)+
+  theme_minimal()+
+  theme(legend.position = 'bottom', legend.text = element_text(size=8), legend.justification = c(1,1))+
+  xlab(label = 'Gene Counts (LogN)')+
+  ylab('Absolute frequency')+
+  guides(alpha='none')
+
+ggsave(filename = 'figure1_frequencey_histogram.pdf', plot = figure1_frequency_histogram, device = 'pdf',width = 8, height =16, units = 'cm', dpi = 300 )
+
+figure1_frequency_histogram <- ggplot(data = cnts, mapping = aes(x=log(Counts), fill=Time, alpha=0.3))+
+  geom_histogram(bins = 150, position = 'identity')+
+  facet_wrap(facets = ~Library, nrow = 4)+
+  theme_minimal()+
+  theme(legend.position = 'bottom', legend.text = element_text(size=8), legend.justification = c(1,1))+
+  xlab(label = 'Gene Counts (LogN)')+
+  ylab('Absolute frequency')+
+  guides(alpha='none')
+
+total_reads <- ddply(cnts, .variables = c('Time','Genotype', 'Tissue'), summarise, 
+      total_reads=sum(Counts))
+
+ggplot(total_reads, aes(y=total_reads, x=Time))+
+  geom_bar(stat='identity')+
+  facet_wrap(~Genotype+Tissue)
+
+supplemental_figure1 <- ggplot(data = cnts, mapping = aes(x=log(Counts), fill=Time))+
+  geom_density()+
+  facet_wrap(facets = ~Tissue+Time, nrow = 5)+
+  theme_minimal()+
+  theme(legend.position = 'bottom', legend.text = element_text(size=8), legend.justification = c(1,1))+
+  xlab(label = 'Gene Counts (LogN)')+
+  ylab('Relative frequency')+
+  guides(alpha='none')
+ggsave('supplemental_figure1', plot = supplemental_figure1, device = 'pdf', width = 7.5, height = 21, units = 'cm',dpi = 300)
+
+```
+
+#table 1: Sequencing and mapping statistics
+
+```{r}
+library(tidyverse)
+library(flextable)
+library(officer)
+library(plyr)
+library(data.table)
+use_df_printer()
+
+seq_data <- read.csv(file = 'seq_data.csv', header = T, as.is = T)
+seq_data$Genotype <- unlist(lapply(seq_data$Sample.Name, function(x) strsplit(x, '_T')[[1]][1]))
+seq_data$Genotype <- gsub('_', '', seq_data$Genotype)
+seq_data$Time <- unlist(lapply(seq_data$Sample.Name, function(x) strsplit(x, '_')[[1]][3]))
+seq_data <- seq_data[!seq_data$Time=='T8',]
+seq_data$Block <- unlist(lapply(seq_data$Sample.Name, function(x) strsplit(x, '_')[[1]][4]))
+seq_data <- seq_data[!seq_data$Block=='B',]
+seq_data <- data.table(seq_data)
+
+df <- ddply(.data = cnts, .variables = 'Library', summarise,
+                               mapped_genes = sum(Counts>0))
+df$Sample.Name <- unlist(lapply(as.character(df$Library), function(x) strsplit(x, '_paired')[[1]][1]))
+
+seq_data$mapped.genes <- df[,'mapped_genes'] #I checked, they are the same order
+
+seq_data$Library <- 1:nrow(seq_data)
+seq_data$Time <- factor(x = seq_data$Time, levels = unique(seq_data$Time), labels = c('0 h', '24 h', '48 h'))
+seq_data$Tissue.type <- factor(x = seq_data$Tissue.type, levels = unique(seq_data$Tissue.type), labels = c('Leaf\nn=18', 'Root\nn=12'))
+
+
+table1 <- flextable(seq_data[, c(2, 6, 7, 10, 8, 3, 4, 9)],col_keys = c('Tissue.type', 'Genotype', 'Time', 'Total.reads', 'Mapped.reads', 'mapped.genes'))
+table1 <- set_header_labels(table1, Tissue.type='Tissue type', Total.reads='Total reads',  Mapped.reads = 'Mapped reads',  mapped.genes='Mapped genes')
+
+table1 <- set_table_properties(table1, layout = "autofit", width = .8)
+table1.1 <- merge_v(table1, j = ~ Tissue.type + Genotype + Time)  %>% hline(i = c(2), j =  2, part = 'body', border = fp_border(color = "orange", width = 3)) %>% valign(j = 1:3, valign = 'top')
+table1.1 <- fix_border_issues(table1.1)
+
+save_as_image(table1.1, path = "table1.png", webshot = 'webshot2')
+
+
+## with percentages....
+seq_data$Percentage2 <- seq_data$Mapped.reads/seq_data$Total.reads*100
+seq_data$Percentage2 <- paste(prettyNum(seq_data$Mapped.reads, digits=4, big.mark = ','), paste('(', prettyNum(seq_data$Percentage2, big.mark = ',', digits=4), '%)', sep=''),sep=' ') 
+
+table2 <- flextable(seq_data[, c(2, 6, 7, 10, 8, 3, 4, 5, 11, 9)],col_keys = c('Tissue.type', 'Genotype', 'Time', 'Total.reads', 'Percentage2', 'mapped.genes'))
+table2 <- set_header_labels(table2, Tissue.type='Tissue type', Total.reads='Total reads', Percentage2 = 'Mapped reads',  mapped.genes='Mapped genes')
+
+table2 <- set_table_properties(table2, layout = "autofit", width = .8)
+table2 <- align(x = table2, align = 'center', part = 'all')
+table2.2 <- merge_v(table2, j = ~ Tissue.type + Genotype + Time)  %>% hline(i = c(2), j =  2, part = 'body', border = fp_border(color = "orange", width = 3)) %>% valign(j = 1:3, valign = 'top')
+table2.2 <- fix_border_issues(table2.2)
+
+save_as_image(table2.2, path = "table1v2.png", webshot = 'webshot2', zoom = 1)
+
+cnts <- data.table(cnts)
+cnts[, .(total_count=sum(Counts), .N), .(Library, Genotype, Time)]
+
+#
+```
+
+
+#GO enrichement with prep
+
+```{r}
+# function that takes the upset plot dataframe format and gives 2-degree or 4 degree intersections
+
+intersect_names <- function(df, col1=NULL, col2=NULL, col3=NULL, col4=NULL) {
+  if (is.null(col3)){
+    genes <- df[(df[, col1]==1) & (df[, col2]==1), 'geneid']
+  }else{
+    genes <- df[which((df[, col1]==1) & (df[, col2]==1) & (df[, col3]==1) & (df[, col4]==1)) , 'geneid']
+  }
+  return(na.omit(genes))
+}
+
+
+sharedup_pa121_48h_24h_v_0h <- upreg_leaf[which((upreg_leaf[, 'leaf_pa121_48h_0h'] == 1) & (upreg_leaf[, 'leaf_pa121_24h_0h'] ==1)), 'geneid']
+shareddown_pa121_48h_24h_v_0h <- downreg_leaf[which((downreg_leaf[, 'leaf_pa121_48h_0h'] == 1) & (downreg_leaf[, 'leaf_pa121_24h_0h'] ==1)), 'geneid']
+
+sharedup_tsh660_48h_24h_v_0h <- intersect_names(upreg_leaf, col1 = 'leaf_tsh660_48h_0h', col2 = 'leaf_tsh660_24h_0h')
+shareddown_tsh660_48h_24h_v_0h <- intersect_names(downreg_leaf, col1 = 'leaf_tsh660_48h_0h', col2 = 'leaf_tsh660_24h_0h')
+
+sharedup_tsh660_48h_pa121_48h <- intersect_names(upreg_leaf, col1 = 'leaf_pa121_48h_0h', col2 = 'leaf_tsh660_48h_0h')
+shareddown_tsh660_48h_pa121_48h <- intersect_names(downreg_leaf, col1 = 'leaf_pa121_48h_0h', col2 = 'leaf_tsh660_48h_0h')
+
+sharedup_tsh660_24h_pa121_24h <- intersect_names(upreg_leaf, col1 = 'leaf_pa121_24h_0h', col2 = 'leaf_tsh660_24h_0h')
+shareddown_tsh660_24h_pa121_24h <- intersect_names(downreg_leaf, col1 = 'leaf_pa121_24h_0h', col2 = 'leaf_tsh660_24h_0h')
+
+leaf_gene_go_list <- list(sharedup_pa121_48h_24h_v_0h,
+     shareddown_pa121_48h_24h_v_0h,
+     sharedup_tsh660_48h_24h_v_0h,
+     shareddown_tsh660_48h_24h_v_0h,
+     sharedup_tsh660_48h_pa121_48h,
+     shareddown_tsh660_48h_pa121_48h,
+     sharedup_tsh660_24h_pa121_24h,
+     shareddown_tsh660_24h_pa121_24h)
+
+
+# Fischer exact test enrichment
+#export for omicsbx
+dir.create('figure_oct22_goe/')
+
+
+
+#leaf reference set
+leaf_reference <- read.table('res_leaf/GOTermE/leaf_reference_set.txt')
+
+names(goe_leaf) <- c('sharedup_pa121_48h_24h_v_0h',
+     'shareddown_pa121_48h_24h_v_0h',
+     'sharedup_tsh660_48h_24h_v_0h',
+     'shareddown_tsh660_48h_24h_v_0h',
+     'sharedup_tsh660_48h_pa121_48h',
+     'shareddown_tsh660_48h_pa121_48h',
+     'sharedup_tsh660_24h_pa121_24h',
+     'shareddown_tsh660_24h_pa121_24h')
+
+names(goe_leaf2) <- c('sharedup_pa121_48h_24h_v_0h',
+     'shareddown_pa121_48h_24h_v_0h',
+     'sharedup_tsh660_48h_24h_v_0h',
+     'shareddown_tsh660_48h_24h_v_0h',
+     'sharedup_tsh660_48h_pa121_48h',
+     'shareddown_tsh660_48h_pa121_48h',
+     'sharedup_tsh660_24h_pa121_24h',
+     'shareddown_tsh660_24h_pa121_24h')
+
+
+```
+
+
+
+#GO enrichment from OMICSBOX leaves
+```{r}
+library(stringr)
+#library(png)
+
+sharedup_pa121_48h_24h_v_0h.box <- read.delim('figure_oct22_goe/shared_up_pa121_48h_24h_0h_fischer.txt', header=T, fill = T, stringsAsFactors = F, sep = '\t')
+
+sharedup_pa121_48h_24h_v_0h.box <- sharedup_pa121_48h_24h_v_0h.box[order(sharedup_pa121_48h_24h_v_0h.box$Adj..P.value),]
+sharedup_pa121_48h_24h_v_0h.box$GeneRatio <- sharedup_pa121_48h_24h_v_0h.box$Nr.Test/sharedup_pa121_48h_24h_v_0h.box$Nr.Reference
+sharedup_pa121_48h_24h_v_0h.box <- sharedup_pa121_48h_24h_v_0h.box[order(sharedup_pa121_48h_24h_v_0h.box$GeneRatio),]
+
+box_goe <- lapply(paste('figure_oct22_goe/', grep(pattern = 'fischer', dir('figure_oct22_goe/'), value = T),sep = ''), read.delim, header=T, fill=T, stringsAsFactors = F, sep = '\t')
+
+prep_goe <- function(df, rows=20, wid=22) {
+  df$GeneRatio <- df$Nr.Test/df$Nr.Reference
+  df <- df[1:rows, ]
+  df <- df[order(df$GO.Category, df$GeneRatio),]
+  df$GO.Name <- str_wrap(df$GO.Name, width = wid)
+  df$GO.Name <- factor(df$GO.Name, levels = df$GO.Name)
+  return(df)
+}
+
+
+
+box_goe_prep <- lapply(box_goe, prep_goe)
+names(box_goe_prep) <- grep(pattern = 'fischer', dir('figure_oct22_goe/'), value=T)
+
+dp_sh_pa121_48h_24h_v_0h <- sharedup_pa121_48h_24h_v_0h.box[1:20,]
+dp_sh_pa121_48h_24h_v_0h <- dp_sh_pa121_48h_24h_v_0h[order(dp_sh_pa121_48h_24h_v_0h$GO.Category, dp_sh_pa121_48h_24h_v_0h$GeneRatio, decreasing = F), ]
+dp_sh_pa121_48h_24h_v_0h$GO.Name <- factor(dp_sh_pa121_48h_24h_v_0h$GO.Name, level=dp_sh_pa121_48h_24h_v_0h$GO.Name)
+
+make_dotplot <- function(goe, plot_title='Dotplot'){
+  ggplot(goe, aes(x = GeneRatio, y =  GO.Name, colour = Adj..P.value, size=Nr.Test, shape=GO.Category)) +
+    geom_point()+
+    scale_color_gradient(name='FDR', low="#CC6666", high="#66CC99")+
+    xlab('Gene Ratio')+
+    ylab('GO Term')+
+    scale_shape_discrete(labels=c('BP', 'CC', 'MF'))+
+    labs(shape='GO Category', size='Group Size', title = plot_title)+
+    theme_minimal(base_size = 4)+
+    guides(size = guide_legend(order = 1), shape = guide_legend(order = 2), colour = guide_colorbar(order = 3))+
+    theme(axis.text.x = element_text(size=6),
+          axis.title.x = element_text(size=8), 
+          axis.title.y = element_text(size=8),
+          plot.title = element_text(size=8), 
+          legend.text = element_text(size=6),
+          legend.title = element_text(size=8))
+}
+
+
+b <- make_dotplot(goe = box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt[box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt$Adj..P.value<0.1,], plot_title = 'Enriched GO terms in shared upreg\nPA121 24h and 48h ACT')
+ggsave(filename = 'fig1_b.pdf', plot = b, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/', width = 21, height = 14, units = 'cm')
+
+#c <- make_dotplot(goe=box_goe_prep$shared_down_pa121_48h_24h_fischer.txt[box_goe_prep$shared_down_pa121_48h_24h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_down_pa121_48h_24h_fischer.txt$Adj..P.value<=.1,], 'Enriched GO terms in shared downreg DEG\nPA121 24h and 48h ACT' )
+#ggsave(filename = 'fig1_c.pdf', plot = c, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+#d <- make_dotplot(goe=box_goe_prep$shared_down_tsh660_48h_24h_0h_fischer.txt[box_goe_prep$shared_down_tsh660_48h_24h_0h_fischer.txt$GeneRatio>0,], 'Enriched GO terms in shared downreg DEG\nTSH660 48h and TSH660 24h ACT' )
+#ggsave(filename = 'fig1_d.pdf', plot = d, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+#e <- make_dotplot(goe=box_goe_prep$shared_up_tsh660_48h_24h_0h_fischer.txt[box_goe_prep$shared_up_tsh660_48h_24h_0h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_tsh660_48h_24h_0h_fischer.txt$Adj..P.value<=0.1,], 'Enriched GO terms in shared upreg DEG\nTSH660 48h and 24h ACT' )
+#ggsave(filename = 'fig1_e.pdf', plot = e, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+#f <- make_dotplot(goe=box_goe_prep$shared_down_tsh660_24h_pa121_24h_fischer.txt[box_goe_prep$shared_down_tsh660_24h_pa121_24h_fischer.txt$GeneRatio>0,], 'Enriched GO terms in shared downreg DEG\nPA121 24h and TSH660 24h ACT' )
+#ggsave(filename = 'fig1_f.pdf', plot = f, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+#g <- make_dotplot(goe=box_goe_prep$shared_up_tsh660_24h_pa121_24h_fischer.txt[box_goe_prep$shared_up_tsh660_24h_pa121_24h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_tsh660_24h_pa121_24h_fischer.txt$Adj..P.value<=.1,], 'Enriched GO terms in shared upreg DEG\nPA121 24h and TSH660 24h ACT' )
+#ggsave(filename = 'fig1_g.pdf', plot = g, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+#h <- make_dotplot(goe=box_goe_prep$shared_down_tsh660_48h_pa121_48h_fischer.txt[box_goe_prep$shared_down_tsh660_48h_pa121_48h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_down_tsh660_48h_pa121_48h_fischer.txt$Adj..P.value<0.1,], 'Enriched GO terms in shared downreg DEG\nPA121 48h and TSH660 48h ACT' )
+#ggsave(filename = 'fig1_h.pdf', plot = h, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+i <- make_dotplot(goe=box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt[box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt$Adj..P.value<=0.1,], 'Enriched GO terms in shared upreg DEG\nPA121 48h and TSH660 48h ACT' )
+ggsave(filename = 'fig1_i.pdf', plot = i, device = 'pdf', dpi = 300, path = 'figure_oct22_goe/')
+
+b <- b+theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=6))
+i <- i+theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=6))
+dotl_pb <- b+i+patchwork::plot_annotation(tag_levels = 'A', theme = theme(plot.title = element_text(size = 12)))
+ggsave(filename = 'dot_leaves_plantBio', plot = dotl_pb, device = 'pdf', width = 24, height = 14, units = 'cm', dpi = 300)
+
+bgo <- box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt[box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_pa121_48h_24h_0h_fischer.txt$Adj..P.value<0.1,]
+                                                           
+igo <- box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt[box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt$GeneRatio>0 & box_goe_prep$shared_up_tsh660_48h_pa121_48h_fischer.txt$Adj..P.value<=0.1,]
+
+single_go_leaves <- rbind(igo, bgo)
+
+fgn <- as.character(single_go_leaves$GO.Name) #factor go names
+fgn[grep('ATP', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'ATP-dependent protein\nfolding chaperone b'
+fgn[grep('unfolded', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'unfolded protein\nbinding b'
+fgn[grep('protein folding\nchaperone', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'protein folding\nchaperone b'
+fgn[11] <- 'protien folding b'
+
+lgn <- as.character(single_go_leaves$GO.Name) #labels go names
+lgn[grep('ATP', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'ATP-dependent protein\nfolding chaperone '
+lgn[grep('unfolded', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'unfolded protein\nbinding '
+lgn[grep('protein folding\nchaperone', as.character(single_go_leaves$GO.Name), value = F)[1]] <- 'protein folding\nchaperone '
+lgn[11] <- 'protein folding '
+  
+single_go_leaves$GO.Name <- factor(x = fgn, levels=fgn, labels = lgn)
+
+
+dotl <- make_dotplot(single_go_leaves, plot_title = 'GO enrichment in Leaves')
+
+png_leaf <- readPNG(source = 'PlagioArtboard.png') 
+
+
+
+dotl1 <- dotl+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = 20.5, ymax = 40.5, alpha=0.1, fill='blue')+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = .5, ymax = 20.5, alpha=0.1, fill='red')+
+  annotate('text', x = 0.5, y = 4, label='GO enrichment of\nshared up regulated DEG\nof PA121 24h and 48h\nACT', colour='darkred', size=2, fontface='italic')+
+  annotate('text', x = 0.5, y = 37, label='GO enrichment of\nshared up regulated DEG\nof PA121 48h and TSH660 48h\nACT', colour='darkblue', size=2, fontface='italic')+
+  annotation_raster(raster = png_leaf, xmin = 0.2, xmax = 0.8,  ymin = 17, ymax = 23)
+
+
+
+ggsave(dotl1, filename = 'leaf_single_test', device = 'pdf', width = 8, height = 26, units = 'cm', dpi = 300)
+
+#single_go_leaves$Polarity[1:20] <- 'up'
+#single_go_leaves$Polarity[21:40] <- 'down'
+#single_go_leaves <- prep_goe(single_go_leaves, rows = 40)
+
+#b + c + e + g + h + i +plot_layout(nrow = 2)
+#b+c+g+i+plot_layout(nrow = 2)
+#b+c+i+plot_layout(nrow = 1)
+#ggplotify::as.ggplot(upset_leaf_deg) /( b + i )+ plot_layout(nrow = 2)+plot_annotation(tag_levels = 'A')
+
+#b+i
+```
+
+#dot plot roots
+```{r}
+#Go terms
+
+shareddown_root_tsh660_48h_pa121_48h_0h <- intersect_names(df = downreg_root, col1 ='root_pa121_48h_0h', col2 = 'root_tsh660_48h_0h')
+
+sharedup_root_tsh660_48h_pa121_48h_0h <- intersect_names(df = upreg_root, col1 ='root_pa121_48h_0h', col2 = 'root_tsh660_48h_0h')
+
+root_gene_go_list <- list(shareddown_root_tsh660_48h_pa121_48h_0h, sharedup_root_tsh660_48h_pa121_48h_0h)
+
+names(root_gene_go_list) <- c('shareddown_root_tsh660_48h_pa121_48h_0h', 'sharedup_root_tsh660_48h_pa121_48h_0h')
+
+#dir.create('figure_oct22_goe_root/')
+
+#mapply( FUN = function(x, y) write.table(x = x,file = paste('figure_oct22_goe_root/', y, '.txt', sep = ''), append = F, quote = F, sep = '\t', row.names = F, col.names = F), x= root_gene_go_list, y = names(root_gene_go_list))
+
+box_goe_root <- lapply(paste('figure_oct22_goe_root/', grep(pattern = 'fischer', dir('figure_oct22_goe_root/'), value = T),sep = ''), read.delim, header=T, fill=T, stringsAsFactors = F, sep = '\t')
+names(box_goe_root) <-  grep(pattern = 'fischer', dir('figure_oct22_goe_root/'), value = T)
+
+box_root_prep <- lapply(box_goe_root, prep_goe, rows=66, wid=40)
+names(box_root_prep) <-  grep(pattern = 'fischer', dir('figure_oct22_goe_root/'), value = T)
+
+#k <- make_dotplot(goe = box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt, plot_title = 'Enriched GO shared downreg\nPA121 & TSH660 48h ACT')
+#k1 <- make_dotplot(goe = box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer_5per.txt, plot_title = 'Enriched GO shared downreg\nPA121 & TSH660 48h ACT 5%')
+#ggsave(filename = 'fig1_k1.pdf', plot = k1, device = 'pdf', path = 'figure_oct22_goe_root/', width = 21, height = 21, units = 'cm', dpi = 300)
+#k2 <- make_dotplot(goe = box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer_10per.txt, plot_title = 'Enriched GO shared downreg\nPA121 & TSH660 48h ACT 10%')
+
+k3 <- make_dotplot(goe = box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt[box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt$GeneRatio>.02, ], plot_title = 'Enriched GO in root shared downregulated DEG\nPA121 & TSH660 48h ACT ')
+
+ggsave(filename = 'fig1_k3.pdf', plot = k3, device = 'pdf', path = 'figure_oct22_goe_root/', width = 18, height = 10, units = 'cm', dpi = 300)
+
+#l <- make_dotplot(goe = box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_fischer.txt, plot_title = 'Enriched GO in root shared upregulated\nPA121 & TSH660 48h ACT')
+#ggsave(filename = 'fig1_l.pdf', plot = l, device = 'pdf', path = 'figure_oct22_goe_root/', width = 21, height = 21, units = 'cm', dpi = 300)
+
+#l_1 <- make_dotplot(goe = box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_5per_fischer.txt, plot_title = 'Enriched GO shared upreg\nPA121 & TSH660 48h ACT 5%')
+
+l3 <- make_dotplot(goe = box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_fischer.txt[box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_fischer.txt$GeneRatio>0.053,], plot_title = 'Enriched GO in root shared upregulated DEG\nPA121 & TSH660 48h ACT')
+
+ggsave(filename = 'fig1_l_3.pdf', plot = l3, device = 'pdf', path = 'figure_oct22_goe_root/', width = 21, height = 21, units = 'cm', dpi = 300)
+
+ggsave(filename = 'fig1_l_5per.pdf', plot = l_1, device = 'pdf', path = 'figure_oct22_goe_root/', width = 21, height = 21, units = 'cm', dpi = 300)
+
+k3 <- k3+theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=6))
+l3 <- l3+theme(axis.text.x = element_text(size=10), axis.text.y = element_text(size=6))
+dotr_pb <- k3+l3+patchwork::plot_annotation(tag_levels = 'A', theme = theme(plot.title = element_text(size = 12)))
+ggsave(filename = 'dot_roots_plantBio', plot = dotr_pb, device = 'pdf', width = 24, height = 18, units = 'cm', dpi = 300)
+
+
+root_fig_2 <- as.ggplot(upset_root_deg)+patch_goroot+ plot_layout(nrow =  1, widths = c(.5, .5))+plot_annotation(tag_levels = 'A')
+
+ggsave(plot = root_fig_2, filename = 'roottest', device = 'pdf', width = 18, height = 18, units = 'cm', dpi = 300)
+
+single_go_roots <- rbind(box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt[box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt$GeneRatio>.02, ], box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_fischer.txt[box_root_prep$shared_root_up_pa121_48h_tsh660_48h_0h_fischer.txt$GeneRatio>0.053,])
+
+#dotp <- make_dotplot(single_go_roots, plot_title = 'GO enrichment of root DEG shared\nbetween PA121 & TSH660 48h ACT')
+dotp <- make_dotplot(single_go_roots[c(1:40, 44:83),], plot_title = 'GO enrichment in Roots')
+
+#dotp
+png_root <- readPNG('RootSystem.png')
+
+dotp1 <- dotp+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = 40.5, ymax = 80.5, alpha=0.1, fill='blue')+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = .5, ymax = 40.5, alpha=0.1, fill='red')+
+  annotate('text', x = 0.6, y = 7, label='GO enrichment of\ndown regulated DEG\nshared between\nPA121 & TSH660 48h\nACT', colour='darkred', size=2, fontface='italic')+
+  annotate('text', x = 0.6, y = 74, label='GO enrichment of\nup regulated DEG\nshared between\nPA121 & TSH660 48h\nACT', colour='darkblue', size=2, fontface='italic')+
+  annotation_raster(raster = png_root, xmin = 0.4, xmax = 0.8,  ymin = 37, ymax = 43)
+  
+
+ggsave(dotp1, filename = 'single_root_go_3', device = 'pdf', width = 8, height = 26, units = 'cm', dpi = 300)
+
+```
+
+# Dotplot poster 
+```{r}
+poster_dotplot <- function(goe, plot_title='Dotplot'){
+  ggplot(goe, aes(x = GeneRatio, y =  GO.Name, colour = Adj..P.value, size=Nr.Test, shape=GO.Category)) +
+    geom_point()+
+    scale_color_gradient(name='FDR', low="#CC6666", high="#66CC99")+
+    xlab('Gene Ratio')+
+    ylab('GO Term')+
+    scale_shape_discrete(labels=c('BP', 'CC', 'MF'))+
+    labs(shape='GO Category', size='Group Size', title = plot_title)+
+    theme_minimal(base_size = 4)+
+    guides(size = guide_legend(order = 1), shape = guide_legend(order = 2), colour = guide_colorbar(order = 3))+
+    theme(axis.text.x = element_text(size=8),
+          axis.title.x = element_text(size=10), 
+          axis.title.y = element_text(size=10),
+          plot.title = element_text(size=10), 
+          legend.text = element_text(size=8),
+          legend.title = element_text(size=10))
+}
+
+root_dotp_poster <- poster_dotplot(single_go_roots[c(1:40, 44:83),], plot_title = 'GO enrichment in Roots')
+root_dotp_poster1 <- root_dotp_poster+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = 40.5, ymax = 80.5, alpha=0.1, fill='blue')+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = .5, ymax = 40.5, alpha=0.1, fill='red')+
+  annotate('text', x = 0.6, y = 7, label='GO enrichment of\ndown regulated DEG\nshared between\nPA121 & TSH660 48h\nACT', colour='darkred', size=2, fontface='italic')+
+  annotate('text', x = 0.6, y = 74, label='GO enrichment of\nup regulated DEG\nshared between\nPA121 & TSH660 48h\nACT', colour='darkblue', size=2, fontface='italic')+
+  annotation_raster(raster = png_root, xmin = 0.4, xmax = 0.8,  ymin = 36, ymax = 48)
+  
+#leaves
+
+leaves_dotp_poster <- poster_dotplot(single_go_leaves, plot_title = 'GO enrichment in Leaves')
+
+leaves_dotp_poster1 <- leaves_dotp_poster+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = 20.5, ymax = 40.5, alpha=0.1, fill='blue')+
+  annotate('rect', xmin=0, xmax = 0.8, ymin = .5, ymax = 20.5, alpha=0.1, fill='red')+
+  annotate('text', x = 0.5, y = 4, label='GO enrichment of\nshared up regulated DEG\nof PA121 24h and 48h\nACT', colour='darkred', size=2, fontface='italic')+
+  annotate('text', x = 0.5, y = 37, label='GO enrichment of\nshared up regulated DEG\nof PA121 48h and TSH660 48h\nACT', colour='darkblue', size=2, fontface='italic')+
+  annotation_raster(raster = png_leaf, xmin = 0.2, xmax = 0.8,  ymin = 15, ymax = 25)
+
+
+poster_dotp <- leaves_dotp_poster1+root_dotp_poster1 +patchwork::plot_annotation(tag_levels = 'A') & theme(plot.tag = element_text(size=15))
+
+ggsave(poster_dotp, filename = 'poster_dotp', device = 'pdf', width = 24, height = 26, units = 'cm', dpi = 300)
+
+```
+
+
+## ComplexUpset
+
+```{r}
+library(ComplexUpset)
+library(ggplot2)
+library(magrittr)
+library('dplyr')
+
+leaf_pa121_24h_0h=NA
+leaf_tsh660_24h_0h=NA
+leaf_pa121_48h_0h=NA
+leaf_tsh660_48h_0h=NA
+leaf_48h_0h=NA
+leaf_24h_0h=NA
+#root_pa121_48h_0h=NA
+#root_tsh660_48h_0h=NA
+
+deg_leaf <- data.frame(geneid=annot$id,   #All DEG
+                        leaf_pa121_24h_0h,
+                        leaf_tsh660_24h_0h,
+                        leaf_pa121_48h_0h,
+                        leaf_tsh660_48h_0h, 
+                        leaf_48h_0h,
+                        leaf_24h_0h
+)
+
+
+upreg_leaf <- deg_leaf
+
+downreg_leaf <- upreg_leaf
+#function(x) if (x$log2FoldChange>0) return('Upregulated') else return('Downregulated')
+#x$log2FoldChange >0
+
+deg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05, 'geneid'])
+#updown_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05,]$log2FoldChange >0) #T=upregulated
+
+upreg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05 & x$log2FoldChange>0, 'geneid'])
+downreg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05 & x$log2FoldChange<0, 'geneid'])
+
+lapply(names(deg_leaf[, 2:ncol(deg_leaf)]), function(x) {
+  deg_leaf[, x] <<- deg_leaf$geneid %in% deg_leaf_id[[x]][, geneid]
+})
+
+lapply(names(upreg_leaf[, 2:ncol(upreg_leaf)]), function(x) {
+  upreg_leaf[, x] <<- upreg_leaf$geneid %in% upreg_leaf_id[[x]][, geneid]
+})
+
+lapply(names(downreg_leaf[, 2:ncol(downreg_leaf)]), function(x) {
+  downreg_leaf[, x] <<- downreg_leaf$geneid %in% downreg_leaf_id[[x]][, geneid]
+})
+
+
+
+cupset_leaf_deg <-  ComplexUpset::upset(data = deg_leaf,
+                                        wrap = T,
+                                        width_ratio = 0.1, 
+                                        intersect = c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h", "leaf_24h_0h", "leaf_48h_0h"), 
+                                        mode = 'inclusive_intersection',
+                                        name = 'Gene Contrast Intersection', 
+                                        keep_empty_groups=T, 
+                                        sort_sets=F, 
+                                        sort_intersections=F, 
+                                        intersections = inter_leaf,
+                                        base_annotations=list('Intersection size'=intersection_size(mode = 'inclusive_intersection', text = list(size=2))),
+                                        themes = upset_modify_themes(list('intersections_matrix' = theme(axis.text.y=element_text(size=5), axis.title.x = element_text(size=7)),
+                                                                          'Intersection size' = list(theme(axis.title=element_text(size=7))))), 
+                                        labeller=ggplot2::as_labeller(c(
+                                          "leaf_48h_0h" = "Both Genotype 48h vs 0h ACT",
+                                          "leaf_24h_0h" = "Both Genotype 24h vs 0h ACT",
+                                          "leaf_tsh660_48h_0h" = "TSH660 48h vs 0h ACT",
+                                          "leaf_pa121_48h_0h" = 'PA121 48h vs 0h ACT', 
+                                          "leaf_tsh660_24h_0h" = 'TSH660 24h vs 0h ACT', 
+                                          "leaf_pa121_24h_0h" = 'PA121 24h vs 0h ACT')),
+                                        set_sizes=(upset_set_size()+
+                                                     theme(axis.text.x=element_text(angle=45, size = 5), axis.title.x = element_text(size = 7))),
+                                        matrix = (intersection_matrix(
+                                          geom = geom_point(), segment = geom_segment()
+                                        ) 
+                                        )
+)
+
+
+```
+
+
+
+##Root Upset
+
+```{r}
+root_pa121_48h_0h=NA
+root_tsh660_48h_0h=NA
+root_pa121_tsh660_0h_0h=NA
+root_pa121_tsh660_48h_48h=NA
+root_48h_0h=NA
+
+root_geno_comparison_names <- c('root_pa121_48h_0h', 'root_tsh660_48h_0h', 'root_pa121_tsh660_0h_0h', 'root_pa121_tsh660_48h_48h', 'root_48h_0h')
+
+deg_root <- data.frame(geneid=na.omit(annot$id),
+                       root_pa121_48h_0h,
+                       root_tsh660_48h_0h,
+                       root_pa121_tsh660_0h_0h,
+                       root_pa121_tsh660_48h_48h, 
+                       root_48h_0h)
+
+upreg_root <- deg_root
+
+downreg_root <- deg_root
+
+deg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 , 'geneid'])
+
+upreg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 & x$log2FoldChange >1, 'geneid'])
+
+downreg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 & x$log2FoldChange <1, 'geneid'])
+
+#root_comparison_names <- names(deg_root[, 2:ncol(deg_root)])
+
+lapply(root_geno_comparison_names, function(x) {
+  deg_root[, x] <<- deg_root$geneid %in% deg_root_id[[x]][, geneid]
+})
+
+lapply(root_geno_comparison_names, function(x) {
+  upreg_root[, x] <<- as.integer(deg_root$geneid %in% upreg_root_id[[x]][, geneid])
+})
+
+lapply(root_geno_comparison_names, function(x) {
+  downreg_root[, x] <<- as.integer(deg_root$geneid %in% downreg_root_id[[x]][, geneid])
+})
+
+
+
+#upset plot roots
+
+names(deg_root) <- c('geneid', 'Root PA121 48h vs 0h ACT', 'Root TSH660 48h vs 0h ACT', 'Root PA121 0h vs TSH660 0h ACT', 'Root PA121 48h vs TSH660 48h ACT', 'Both genotypes root 48h ACT', names(deg_root[, 7:ncol(deg_root)]))
+
+inter_root <- list(c('Root PA121 0h vs TSH660 0h ACT'), 
+                   c('Root PA121 48h vs TSH660 48h ACT'),
+                   c('Both genotypes root 48h ACT'),
+                   c('Root TSH660 48h vs 0h ACT'), 
+                   c('Root PA121 48h vs 0h ACT'), 
+                   c('Root PA121 48h vs 0h ACT', 'Root TSH660 48h vs 0h ACT'), 
+                   c('Root PA121 48h vs 0h ACT', 'Root TSH660 48h vs 0h ACT', 'Both genotypes root 48h ACT'), 
+                   c('Root PA121 0h vs TSH660 0h ACT', 'Root PA121 48h vs TSH660 48h ACT'))
+
+
+inter_root <- list(c('root_pa121_48h_0h'),
+                   c('root_tsh660_48h_0h'),
+                   c('root_48h_0h'),
+                   c('root_pa121_tsh660_48h_48h'),
+                   c('root_pa121_tsh660_0h_0h'),
+                   c('root_pa121_48h_0h', 'root_tsh660_48h_0h'),
+                   c('root_pa121_48h_0h', 'root_tsh660_48h_0h', 'root_48h_0h')
+                   )
+
+inter_both <- append(inter_leaf, inter_root)
+
+deg_both <- merge(x = deg_leaf, deg_root, by='geneid')
+
+cupset_root_deg <-  ComplexUpset::upset(data = deg_root,
+                                        wrap = T,
+                                        width_ratio = 0.1, 
+                                        intersect = 
+                                          c("root_pa121_48h_0h", "root_tsh660_48h_0h", "root_48h_0h" ), 
+                                        mode = 'inclusive_intersection',
+                                        name = 'Gene Contrast Intersection', 
+                                        keep_empty_groups=T, 
+                                        sort_sets=F, 
+                                        sort_intersections=F, 
+                                        intersections = inter_root,
+                                        base_annotations=list('Intersection size'=intersection_size(mode = 'inclusive_intersection', text = list(size=2))),
+                                        themes = upset_modify_themes(list('intersections_matrix' = theme(axis.text.y=element_text(size=5), axis.title.x = element_text(size=7)),
+                                                                          'Intersection size' = list(theme(axis.title=element_text(size=7))))), 
+                                        labeller=ggplot2::as_labeller(c(
+                                          "root_48h_0h" = "Both Genotype 48h vs 0h ACT",
+                                          "root_tsh660_48h_0h" = "TSH660 48h vs 0h ACT",
+                                          "root_pa121_48h_0h" = 'PA121 48h vs 0h ACT')),
+                                          
+                                        set_sizes=(upset_set_size()+
+                                                     theme(axis.text.x=element_text(angle=45, size = 5), axis.title.x = element_text(size = 7))),
+                                        matrix = (intersection_matrix(
+                                          geom = geom_point(), segment = geom_segment()
+                                        ) 
+                                        )
+)
+```
+
+
+
+#upset_both
+
+```{r}
+upset(deg_both,  intersect = c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h", "leaf_24h_0h", "leaf_48h_0h","root_pa121_48h_0h", "root_tsh660_48h_0h", "root_48h_0h" ))
+
+cupset_both_deg <-  ComplexUpset::upset(data = deg_both,
+                                        wrap = T,
+                                        width_ratio = 0.1, 
+                                        intersect = 
+                                          c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h", "leaf_24h_0h", "leaf_48h_0h","root_pa121_48h_0h", "root_tsh660_48h_0h", "root_48h_0h" ), 
+                                        mode = 'inclusive_intersection',
+                                        name = 'Gene Contrast Intersection', 
+                                        keep_empty_groups=T, 
+                                        sort_sets=F, 
+                                        sort_intersections=F, 
+                                        intersections = inter_both[-c(17:18, 21)],
+                                        base_annotations=list('Intersection size'=intersection_size(mode = 'inclusive_intersection', text = list(size=2))),
+                                        themes = upset_modify_themes(list('intersections_matrix' = theme(axis.text.y=element_text(size=5), axis.title.x = element_text(size=7)),
+                                                                          'Intersection size' = list(theme(axis.title=element_text(size=7))))), 
+                                        #labeller=ggplot2::as_labeller(c(
+                                        #  "root_48h_0h" = "Both Genotype 48h vs 0h ACT",
+                                        #  "root_tsh660_48h_0h" = "TSH660 48h vs 0h ACT",
+                                        #  "root_pa121_48h_0h" = 'PA121 48h vs 0h ACT')),
+                                          
+                                        set_sizes=(upset_set_size()+
+                                                     theme(axis.text.x=element_text(angle=45, size = 5), axis.title.x = element_text(size = 7))),
+                                        matrix = (intersection_matrix(
+                                          geom = geom_point(), segment = geom_segment()
+                                        ) 
+                                        )
+)
+
+
+
+#ggsave('fig2_upset_proportion_leaf_poster.pdf', plot = figure2_leaf, device = cairo_pdf, width = 18, height = 15, units = 'cm', dpi = 300)
+
+
+
+```
+
+#intersection leaf polarity
+
+```{r}
+table(upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1) #intersection 1 up
+table(downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1) #intersection 1 down
+table(upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1) #intersection 1 opposite
+table(downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1) #intersection 1 opposite
+
+table(upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1) #intersection 2 up
+table(downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_tsh660_24h_0h']==1) #intersection 2 down
+table(upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1) #intersection 2 opposite
+table(downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1) #intersection 2 opposite
+
+table(upreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1) #intersection 3 up
+table(downreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1) #intersection 3 down
+table(upreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1) #intersection 3 opposite
+table(downreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1) #intersection 3 opposite
+
+table(upreg_leaf[, "leaf_pa121_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1) #intersection 4 up
+table(downreg_leaf[, "leaf_pa121_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1) #intersection 4 down
+table(upreg_leaf[, "leaf_pa121_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1) #intersection 4 opposite
+table(downreg_leaf[, "leaf_pa121_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1) #intersection 4 opposite
+
+
+table(upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1) # intersection 5 up
+table(downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1) # intersection 5 down
+
+table(upreg_leaf[, 'leaf_48h_0h']==1 & upreg_leaf[, 'leaf_24h_0h']==1)
+table(downreg_leaf[, 'leaf_48h_0h']==1 & downreg_leaf[, 'leaf_24h_0h']==1)
+table(upreg_leaf[, 'leaf_48h_0h']==1 & downreg_leaf[, 'leaf_24h_0h']==1)
+table(downreg_leaf[, 'leaf_48h_0h']==1 & upreg_leaf[, 'leaf_24h_0h']==1)
+
+deg_leaf[upreg_leaf$leaf_pa121_24h_0h==1, 'fill_leaf_pa121_24h_0h'] <- 'up' 
+deg_leaf[downreg_leaf$leaf_pa121_24h_0h==1, 'fill_leaf_pa121_24h_0h'] <- 'down'
+
+deg_leaf[upreg_leaf$leaf_pa121_48h_0h==1, 'fill_leaf_pa121_48h_0h'] <- 'up' 
+deg_leaf[downreg_leaf$leaf_pa121_48h_0h==1, 'fill_leaf_pa121_48h_0h'] <- 'down'
+
+deg_leaf[upreg_leaf$leaf_tsh660_24h_0h==1, 'fill_leaf_tsh660_24h_0h'] <- 'up' 
+deg_leaf[downreg_leaf$leaf_tsh660_24h_0h==1, 'fill_leaf_tsh660_24h_0h'] <- 'down'
+
+deg_leaf[upreg_leaf$leaf_tsh660_48h_0h==1, 'fill_leaf_tsh660_48h_0h'] <- 'up' 
+deg_leaf[downreg_leaf$leaf_tsh660_48h_0h==1, 'fill_leaf_tsh660_48h_0h'] <- 'down'
+
+deg_leaf[upreg_leaf$leaf_24h_0h==1, 'fill_leaf_24h_0h'] <- 'up'
+deg_leaf[downreg_leaf$leaf_24h_0h==1, 'fill_leaf_24h_0h'] <- 'down'
+
+deg_leaf[upreg_leaf$leaf_48h_0h==1, 'fill_leaf_48h_0h'] <- 'up'
+deg_leaf[downreg_leaf$leaf_48h_0h==1, 'fill_leaf_48h_0h'] <- 'down'
+
+
+deg_leaf[upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_1'] <- 'up'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1,  'intersection_1'] <- 'down'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_1'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_1'] <- 'opposite'
+
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1, 'intersection_2'] <- 'up'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1, 'intersection_2'] <- 'down'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1, 'intersection_2'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1, 'intersection_2'] <- 'opposite'
+
+deg_leaf[upreg_leaf[, "leaf_pa121_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1, 'intersection_3'] <- 'up'
+deg_leaf[downreg_leaf[, "leaf_pa121_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1, 'intersection_3'] <- 'down'
+deg_leaf[upreg_leaf[, "leaf_pa121_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1, 'intersection_3'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_pa121_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1, 'intersection_3'] <- 'opposite'
+
+deg_leaf[upreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_4'] <- 'up'
+deg_leaf[downreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_4'] <- 'down'
+deg_leaf[upreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_4'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_tsh660_48h_0h"] ==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_4'] <- 'opposite'
+
+
+
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'up'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'down'
+
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5']  <- 'opposite'
+
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[upreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_48h_0h']==1 & downreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+deg_leaf[downreg_leaf[, 'leaf_tsh660_48h_0h'] == 1 & upreg_leaf[, 'leaf_pa121_48h_0h']==1 & upreg_leaf[, 'leaf_tsh660_24h_0h'] == 1 & downreg_leaf[, 'leaf_pa121_24h_0h']==1, 'intersection_5'] <- 'opposite'
+
+
+deg_leaf[upreg_leaf[, "leaf_24h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'up'
+deg_leaf[downreg_leaf[, "leaf_24h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'down'
+deg_leaf[upreg_leaf[, "leaf_24h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_24h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_24h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'opposite'
+deg_leaf[upreg_leaf[, "leaf_24h_0h"] ==1 & downreg_leaf[, "leaf_pa121_24h_0h"]==1 & upreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'opposite'
+deg_leaf[upreg_leaf[, "leaf_24h_0h"] ==1 & upreg_leaf[, "leaf_pa121_24h_0h"]==1 & downreg_leaf[, "leaf_tsh660_24h_0h"]==1, 'intersection_6'] <- 'opposite'
+
+
+deg_leaf[upreg_leaf[, "leaf_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_48h_0h"]==1 & upreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'up'
+deg_leaf[downreg_leaf[, "leaf_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_48h_0h"]==1 & downreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'down'
+deg_leaf[upreg_leaf[, "leaf_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_48h_0h"]==1 & downreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_48h_0h"]==1 & downreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'opposite'
+deg_leaf[downreg_leaf[, "leaf_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_48h_0h"]==1 & upreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'opposite'
+deg_leaf[upreg_leaf[, "leaf_48h_0h"] ==1 & downreg_leaf[, "leaf_pa121_48h_0h"]==1 & upreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'opposite'
+deg_leaf[upreg_leaf[, "leaf_48h_0h"] ==1 & upreg_leaf[, "leaf_pa121_48h_0h"]==1 & downreg_leaf[, "leaf_tsh660_48h_0h"]==1, 'intersection_7'] <- 'opposite'
+
+deg_leaf_fill <- melt(data = deg_leaf[, c(1, 8:ncol(deg_leaf))], id.vars = 'geneid')
+deg_leaf_fill <- na.omit(deg_leaf_fill)
+
+
+# "\U2229" is te unicode for inclusive interseciton symbol 
+
+deg_leaf_fill$variable <- factor(deg_leaf_fill$variable, levels = unique(deg_leaf_fill$variable), labels =  c('PA121 24h vs 0h\nACT (1)',
+                                                                                                              'PA121 48h vs 0h\nACT (2)', 
+                                                                                                              'TSH660 24h vs 0h\nACT (3)',
+                                                                                                              'TSH660 48h vs 0h\nACT (4)', 
+                                                                                                              'Both Genotypes\n24h vs 0h ACT (5)', 
+                                                                                                              'Both Genotypes\n48h vs 0h ACT (6)', 
+                                                                                                              '(1) in (3)', 
+                                                                                                              '(2) in (4)', 
+                                                                                                              '(1) in (2)',
+                                                                                                              '(3) in (4)', 
+                                                                                                              '(1) in (2) in (3) in (4)',
+                                                                                                              '(1) in (3) in (5)',
+                                                                                                              '(2) in (4) in (6)'))
+
+inter_leaf <- list(c("leaf_pa121_24h_0h"),
+                   c("leaf_tsh660_24h_0h"),
+                   c("leaf_pa121_48h_0h"),
+                   c("leaf_tsh660_48h_0h"),
+                   c('leaf_24h_0h'),
+                   c('leaf_48h_0h'),
+                   c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h'), # 1
+                   c('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h'), # 2
+                   c('leaf_pa121_24h_0h', 'leaf_pa121_48h_0h'), # 3
+                   c('leaf_tsh660_24h_0h', 'leaf_tsh660_48h_0h'), # 4
+                   c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h"), # 5
+                   c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h', 'leaf_24h_0h'), # 6
+                   c('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h', 'leaf_48h_0h') # 7
+                   )
+  
+
+
+fill_plot_leaf <- 
+  ggplot(deg_leaf_fill, mapping = aes(variable, fill=value))+
+  geom_bar(stat='count', position='fill')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))+
+  ylab(label='Proportion of upreglated, downregulated and\nopposite regulated DEG in set')+
+  xlab(label = 'Gene expression comparison and intersection (∩) set')+
+  labs(fill = 'Regulation\npolarity')+
+  scale_y_continuous(labels=scales::percent_format())+
+  geom_text(aes(label=paste0(sprintf("%1.1f", pct),"%")),
+            position=position_stack(vjust=0.5))
+
+fill_plot_leaf2 <- deg_leaf_fill %>% 
+  count(variable, value) %>%
+  group_by(variable) %>%
+  mutate(pct=prop.table(n) * 100) %>%
+  ggplot() + aes(variable, pct, fill=value)+
+  geom_bar(stat='identity')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, size = 5, vjust = 0.865, hjust = 0.85), axis.text.y = element_text(size = 5), axis.title.y = element_text(size = 7, hjust = 1), axis.title.x = element_text(size = 7), legend.text = element_text(size=5), legend.title = element_text(size=7))+
+  ylab(label='Proportion of upreglated,\ndownregulated and opposite\nregulated DEG in set')+
+  xlab(label = 'Gene expression comparison and intersection (in) set')+
+  labs(fill = 'Regulation\npolarity')+
+  geom_text(aes(label=paste0(sprintf("%1.1f", pct),"%")), size=2.5,
+            position=position_stack(vjust=0.5))
+
+figure2_leaf <- cupset_leaf_deg/fill_plot_leaf2 + patchwork::plot_layout(ncol = 1, nrow = 2, heights = c(.80, .20)) + patchwork::plot_annotation(tag_levels =  c('A'))
+
+ggsave('fig2_upset_proportion_leaf.pdf', plot = figure2_leaf, device = cairo_pdf, width = 18, height = 12, units = 'cm', dpi = 300)
+
+ggsave('fig2_upset_proportion_leaf_poster.pdf', plot = figure2_leaf, device = cairo_pdf, width = 18, height = 15, units = 'cm', dpi = 300)
+
+cairo_pdf()
+
+
+```
+
+
+
+
+#intersection root polarity
+
+```{r}
+#add categories, one new row for each intersection. We have only one in roots]
+
+deg_root$fill_root_pa121_48h_0h <- NA
+deg_root$fill_root_tsh660_48h_0h <- NA
+deg_root$fill_root_pa121_tsh660_0h_0h <- NA
+deg_root$fill_root_pa121_tsh660_48h_48h <- NA
+deg_root$fill_root_48h_0h <- NA
+
+deg_root[upreg_root[, 'root_tsh660_48h_0h']==1, 'fill_root_tsh660_48h_0h'] <- 'up'
+deg_root[downreg_root[, 'root_tsh660_48h_0h']==1, 'fill_root_tsh660_48h_0h'] <- 'down'
+
+deg_root[upreg_root[, 'root_pa121_48h_0h']==1, 'fill_root_pa121_48h_0h'] <- 'up'
+deg_root[downreg_root[, 'root_pa121_48h_0h']==1, 'fill_root_pa121_48h_0h'] <- 'down'
+
+deg_root[upreg_root[, 'root_pa121_tsh660_0h_0h']==1, 'fill_root_pa121_tsh660_0h_0h'] <- 'up'
+deg_root[downreg_root[, 'root_pa121_tsh660_0h_0h']==1, 'fill_root_pa121_tsh660_0h_0h'] <- 'down'
+
+deg_root[upreg_root[, 'root_pa121_tsh660_48h_48h']==1, 'fill_root_pa121_tsh660_48h_48h'] <- 'up'
+deg_root[downreg_root[, 'root_pa121_tsh660_48h_48h']==1, 'fill_root_pa121_tsh660_48h_48h'] <- 'down'
+
+deg_root[upreg_root[, 'root_48h_0h']==1, 'fill_root_48h_0h'] <- 'up'
+deg_root[downreg_root[, 'root_48h_0h']==1, 'fill_root_48h_0h'] <- 'down'
+
+deg_root[(upreg_root[, 'root_tsh660_48h_0h'] == 1 & upreg_root[, 'root_pa121_48h_0h']==1), 'intersection_8'] <- 'up'
+deg_root[(downreg_root[, 'root_tsh660_48h_0h'] == 1 & downreg_root[, 'root_pa121_48h_0h']==1), 'intersection_8'] <- 'down'
+deg_root[(upreg_root[, 'root_tsh660_48h_0h'] == 1 & downreg_root[, 'root_pa121_48h_0h']==1), 'intersection_8'] <- 'opposite'
+deg_root[(downreg_root[, 'root_tsh660_48h_0h'] == 1 & upreg_root[, 'root_pa121_48h_0h']==1), 'intersection_8'] <- 'opposite'
+
+deg_root[upreg_root[, "root_48h_0h"]==1 & upreg_root[,'root_pa121_48h_0h']==1 & upreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'up'
+deg_root[downreg_root[, "root_48h_0h"]==1 & downreg_root[,'root_pa121_48h_0h']==1 & downreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'down'
+deg_root[upreg_root[, "root_48h_0h"]==1 & downreg_root[,'root_pa121_48h_0h']==1 & downreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'opposite'
+deg_root[downreg_root[, "root_48h_0h"]==1 & upreg_root[,'root_pa121_48h_0h']==1 & downreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'opposite'
+deg_root[downreg_root[, "root_48h_0h"]==1 & downreg_root[,'root_pa121_48h_0h']==1 & upreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'opposite'
+deg_root[upreg_root[, "root_48h_0h"]==1 & downreg_root[,'root_pa121_48h_0h']==1 & upreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'opposite'
+deg_root[upreg_root[, "root_48h_0h"]==1 & upreg_root[,'root_pa121_48h_0h']==1 & downreg_root[, 'root_tsh660_48h_0h']==1, 'intersection_9'] <- 'opposite'
+
+deg_root[upreg_root[, "root_pa121_tsh660_0h_0h"]==1 & upreg_root[,"root_pa121_tsh660_48h_48h"]==1, 'intersection_10'] <- 'up'
+deg_root[downreg_root[, "root_pa121_tsh660_0h_0h"]==1 & downreg_root[,"root_pa121_tsh660_48h_48h"]==1, 'intersection_10'] <- 'down'
+deg_root[downreg_root[, "root_pa121_tsh660_0h_0h"]==1 & upreg_root[,"root_pa121_tsh660_48h_48h"]==1, 'intersection_10'] <- 'opposite'
+deg_root[upreg_root[, "root_pa121_tsh660_0h_0h"]==1 & downreg_root[,"root_pa121_tsh660_48h_48h"]==1, 'intersection_10'] <- 'opposite'
+
+
+deg_root_fill <- melt(data = deg_root[, c(1,7:ncol(deg_root))], id.vars = 'geneid')
+deg_root_fill <- na.omit(deg_root_fill)
+
+deg_root_fill$variable <- factor(deg_root_fill$variable, unique(deg_root_fill$variable), labels = c('PA121 48h vs 0h\nACT (1)', 
+                                                                                                    'TSH660 48h vs 0h\nACT (2)', 
+                                                                                                    'PA121 0h vs TSH660 0h\nACT (3)', 
+                                                                                                    'PA121 48h vs TSH660 48h\nACT (4)',
+                                                                                                    'Both genotypes 48h vs 0h\nACT (5)',
+                                                                                                    '(1) in (2)', 
+                                                                                                    '(1) in (2) in (5)', 
+                                                                                                    '(3) in (4)'))
+
+
+fill_plot_root <- deg_root_fill %>% 
+  count(variable, value) %>%
+  group_by(variable) %>%
+  mutate(pct=prop.table(n) * 100) %>%
+  ggplot() + aes(variable, pct, fill=value)+
+  geom_bar(stat='identity')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, size = 5, hjust = .85, vjust = .865), axis.text.y = element_text(size = 5), axis.title.y = element_text(size = 7, hjust = 1), axis.title.x = element_text(size = 7),  legend.text = element_text(size=5), legend.title = element_text(size=7))+
+  ylab(label='Proportion of upreglated,\ndownregulated and opposite\nregulated DEG in set')+
+  xlab(label = 'Gene expression comparison and intersection (in) set')+
+  labs(fill = 'Regulation\npolarity')+
+  geom_text(aes(label=paste0(sprintf("%1.1f", pct),"%")), size=2.5,
+            position=position_stack(vjust=0.5))
+
+
+
+table(upreg_root[, 'root_tsh660_48h_0h'] == 1 & upreg_root[, 'root_pa121_48h_0h']==1)
+table(downreg_root[, 'root_tsh660_48h_0h'] == 1 & downreg_root[, 'root_pa121_48h_0h']==1)
+table(upreg_root[, 'root_tsh660_48h_0h'] == 1 & downreg_root[, 'root_pa121_48h_0h']==1)
+table(downreg_root[, 'root_tsh660_48h_0h'] == 1 & upreg_root[, 'root_pa121_48h_0h']==1)
+
+
+
+figure2_root <- upset_root_deg/ fill_plot_root +  patchwork::plot_layout(ncol = 1, nrow = 2, heights = c(.8, .2)) + patchwork::plot_annotation(tag_levels =  c('A'))
+
+ggsave('fig2_upset_proportion_root.pdf', plot = figure2_root, device = cairo_pdf, width = 18, height = 12, units = 'cm', dpi = 300)
+ggsave('fig2_upset_proportion_root_poster.pdf', plot = figure2_root, device = cairo_pdf, width = 18, height = 18, units = 'cm', dpi = 300)
+```
+
+```{r}
+
+deg_leaf_fill$variable <- factor(deg_leaf_fill$variable, levels = unique(deg_leaf_fill$variable), labels =  c('PA121 24h vs 0h\nACT leaf (1)',
+                                                                                                              'PA121 48h vs 0h\nACT leaf (2)', 
+                                                                                                              'TSH660 24h vs 0h\nACT leaf (3)',
+                                                                                                              'TSH660 48h vs 0h\nACT leaf (4)', 
+                                                                                                              'Both Genotypes\n24h vs 0h ACT leaf (5)', 
+                                                                                                              'Both Genotypes\n48h vs 0h ACT leaf (6)', 
+                                                                                                              '(1) in (3)', 
+                                                                                                              '(2) in (4)', 
+                                                                                                              '(1) in (2)',
+                                                                                                              '(3) in (4)', 
+                                                                                                              '(1) in (2) in (3) in (4)',
+                                                                                                              '(1) in (3) in (5)',
+                                                                                                              '(2) in (4) in (6)'))
+
+
+deg_root_fill$variable <- factor(deg_root_fill$variable, unique(deg_root_fill$variable), labels = c('PA121 48h vs 0h\nACT root (7)', 
+                                                                                                    'TSH660 48h vs 0h\nACT (8)', 
+                                                                                                    'PA121 0h vs TSH660 0h\nACT (9)', 
+                                                                                                    'PA121 48h vs TSH660 48h\nACT (10)',
+                                                                                                    'Both genotypes 48h vs 0h\nACT (11)',
+                                                                                                    '(7) in (8)', 
+                                                                                                    '(7) in (8) in (11)', 
+                                                                                                    '(9) in (10)'))
+
+
+deg_both_fill <- rbind(deg_leaf_fill, deg_root_fill)
+
+fill_plot_both <- deg_both_fill %>% 
+  dplyr::count(variable, value) %>%
+  group_by(variable) %>%
+  mutate(pct=prop.table(n) * 100) %>%
+  ggplot() + aes(variable, pct, fill=value)+
+  geom_bar(stat='identity')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, size = 5, hjust = .85, vjust = .865), axis.text.y = element_text(size = 5), axis.title.y = element_text(size = 7, hjust = 1), axis.title.x = element_text(size = 7),  legend.text = element_text(size=5), legend.title = element_text(size=7))+
+  ylab(label='Proportion of upreglated,\ndownregulated and opposite\nregulated DEG in set')+
+  xlab(label = 'Gene expression comparison and intersection (in) set')+
+  labs(fill = 'Regulation\npolarity')+
+  geom_text(aes(label=paste0(sprintf("%1.1f", pct),"%")), size=2.5,
+            position=position_stack(vjust=0.5))
+
+cupset_both_deg + fill_plot_both
+
+
+```
+
+
+# Upset Poster
+
+```{r}
+
+
+upset_root_deg_post <-  ComplexUpset::upset(data = deg_root,
+                                       wrap = T,
+                                       width_ratio = 0.2,
+                                       intersect = c('Root PA121 48h vs 0h ACT', 'Root TSH660 48h vs 0h ACT', 'Both genotypes root 48h ACT', 'Root PA121 48h vs TSH660 48h ACT', 'Root PA121 0h vs TSH660 0h ACT'),
+                                       #mode = 'inclusive_intersection',
+                                       name = 'Gene Contrasts & Intersections',
+                                       keep_empty_groups=T,
+                                       sort_sets=F,
+                                       sort_intersections=F,
+                                       intersections = inter_root[c(5:1, 6, 7, 8)],
+                                       base_annotations=list('Intersection size'=intersection_size(mode = 'inclusive_intersection', text = list(size=4))),
+                                       themes = upset_modify_themes(list('intersections_matrix' = theme(axis.text.y=element_text(size=9), axis.title.x = element_text(size=12)),
+                                                                          'Intersection size' = list(theme(axis.title=element_text(size=12))))),
+                                       set_sizes=(upset_set_size()
+                                                  +theme(axis.text.x=element_text(angle=45, size = 9), axis.title.x = element_text(size = 12))
+                                                  #+ geom_text(aes(label=..count..), hjust=1.1, stat='count')
+                                                  ),
+                                       matrix = (intersection_matrix(
+                                         geom = geom_point(), segment = geom_segment()
+                                       ) 
+                                       )
+)+ggtitle("Upset plot of Root DEG")+theme(plot.title = element_text(hjust = .5, face = 'italic'))
+
+
+
+        
+
+cupset_leaf_deg_post <-  ComplexUpset::upset(data = deg_leaf,
+                                        wrap = T,
+                                        width_ratio = 0.2, 
+                                        intersect = c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h", "leaf_24h_0h", "leaf_48h_0h"), 
+                                        #mode = 'inclusive_intersection',
+                                        name = 'Gene Contrast & Intersections', 
+                                        keep_empty_groups=T, 
+                                        sort_sets=F, 
+                                        sort_intersections=F, 
+                                        intersections = inter_leaf,
+                                        base_annotations=list('Intersection size'=intersection_size(mode = 'inclusive_intersection', text = list(size=4))),
+                                        themes = upset_modify_themes(list('intersections_matrix' = theme(axis.text.y=element_text(size=9), axis.title.x = element_text(size=12)),
+                                                                          'Intersection size' = list(theme(axis.title=element_text(size=12))))), 
+                                        labeller=ggplot2::as_labeller(c(
+                                          "leaf_48h_0h" = "Both Genotype 48h vs 0h ACT",
+                                          "leaf_24h_0h" = "Both Genotype 24h vs 0h ACT",
+                                          "leaf_tsh660_48h_0h" = "TSH660 48h vs 0h ACT",
+                                          "leaf_pa121_48h_0h" = 'PA121 48h vs 0h ACT', 
+                                          "leaf_tsh660_24h_0h" = 'TSH660 24h vs 0h ACT', 
+                                          "leaf_pa121_24h_0h" = 'PA121 24h vs 0h ACT')),
+                                        set_sizes=(upset_set_size()
+                                                  +theme(axis.text.x=element_text(angle=45, size = 9), axis.title.x = element_text(size = 12))
+                                                  #+ geom_text(aes(label=..count..), hjust=1.1, stat='count')
+                                                  ),
+                                        matrix = (intersection_matrix(
+                                          geom = geom_point(), segment = geom_segment()
+                                        ) 
+                                        )
+)+ggtitle("Upset Plot of Leaf DEG")+theme(plot.title = element_text(hjust = .5, face = 'italic'))
+
+
+figure3_poster <- cupset_leaf_deg_post/upset_root_deg_post+patchwork::plot_annotation(tag_levels = 'A')
+
+ggsave('figure3_poster_upset', plot = figure3_poster, device = 'pdf', width = 21, height = 36, units = 'cm', dpi = 300)
+
+```
+
+#Single root and leaf
+
+```{r}
+
+leaf_pa121_24h_0h=NA
+leaf_tsh660_24h_0h=NA
+leaf_pa121_48h_0h=NA
+leaf_tsh660_48h_0h=NA
+leaf_48h_0h=NA
+leaf_24h_0h=NA
+root_pa121_48h_0h=NA
+root_tsh660_48h_0h=NA
+root_pa121_tsh660_0h_0h=NA
+root_pa121_tsh660_48h_48h=NA
+root_48h_0h=NA
+
+
+deg_both <- data.frame(geneid=annot$id,   #All DEG
+                       leaf_pa121_24h_0h,
+                       leaf_tsh660_24h_0h,
+                       leaf_pa121_48h_0h,
+                       leaf_tsh660_48h_0h, 
+                       leaf_48h_0h,
+                       leaf_24h_0h,
+                       root_pa121_48h_0h,
+                       root_tsh660_48h_0h,
+                       root_48h_0h)
+
+upreg_leaf
+
+
+both_geno_comparison_names <- c("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h",  "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h",
+                                "leaf_48h_0h", "leaf_24h_0h", 'root_pa121_48h_0h', 'root_tsh660_48h_0h', 'root_48h_0h')
+
+
+deg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 , 'geneid'])
+
+upreg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 & x$log2FoldChange >1, 'geneid'])
+
+downreg_root_id <- lapply(df_root_geno, function(x) x[x$padj<0.05 & x$log2FoldChange <1, 'geneid'])
+
+```
+
+
+
+#example for stackoverflow
+
+```{r}
+set.seed(45)
+example_df <- data.frame(geneid=paste('gene_', 1:15000, sep = ''),
+                         comparison_1=sample(c(T, F), size = 15000, replace = T, prob = c(.7, .3)),
+                         comparison_2=sample(c(T, F), size = 15000, replace = T, prob = c(.40, .6)),
+                         comparison_3=sample(c(T, F), size = 15000, replace = T, prob = c(.25, .75)),
+                         comparison_4=sample(c(T, F), size = 15000, replace = T, prob = c(.12, .88)), 
+                         fill_comparison_1=sample(c('up', 'down'), size = 15000, replace = T, prob = c(.60,.40)),
+                         fill_comparison_2=sample(c('up', 'down'), size = 15000, replace = T, prob = c(.55,.45)), 
+                         fill_comparison_3=sample(c('up', 'down'), size = 15000, replace = T, prob = c(.50,.50)), 
+                         fill_comparison_4=sample(c('up', 'down'), size = 15000, replace = T, prob = c(.65,.35)))
+
+example_df[example_df$fill_comparison_1=='up' & example_df$fill_comparison_2=='up', "intersection_1"] <- 'up'
+example_df[example_df$fill_comparison_1=='down' & example_df$fill_comparison_2=='down', "intersection_1"] <- 'down'
+example_df[example_df$fill_comparison_1=='up' & example_df$fill_comparison_2=='down', "intersection_1"] <- 'opposite'
+example_df[example_df$fill_comparison_1=='down' & example_df$fill_comparison_2=='up', "intersection_1"] <- 'opposite'
+
+example_df[example_df$fill_comparison_3=='up' & example_df$fill_comparison_4=='up', "intersection_2"] <- 'up'
+example_df[example_df$fill_comparison_3=='down' & example_df$fill_comparison_4=='down', "intersection_2"] <- 'down'
+example_df[example_df$fill_comparison_3=='up' & example_df$fill_comparison_4=='down', "intersection_2"] <- 'opposite'
+example_df[example_df$fill_comparison_3=='down' & example_df$fill_comparison_4=='up', "intersection_2"] <- 'opposite'
+
+example_df[example_df$fill_comparison_1=='up' & example_df$fill_comparison_3=='up', "intersection_3"] <- 'up'
+example_df[example_df$fill_comparison_1=='down' & example_df$fill_comparison_3=='down', "intersection_3"] <- 'down'
+example_df[example_df$fill_comparison_1=='up' & example_df$fill_comparison_3=='down', "intersection_3"] <- 'opposite'
+example_df[example_df$fill_comparison_1=='down' & example_df$fill_comparison_3=='up', "intersection_3"] <- 'opposite'
+
+example_df[example_df$fill_comparison_2=='up' & example_df$fill_comparison_4=='up', "intersection_4"] <- 'up'
+example_df[example_df$fill_comparison_2=='down' & example_df$fill_comparison_4=='down', "intersection_4"] <- 'down'
+example_df[example_df$fill_comparison_2=='up' & example_df$fill_comparison_4=='down', "intersection_4"] <- 'opposite'
+example_df[example_df$fill_comparison_2=='down' & example_df$fill_comparison_4=='up', "intersection_4"] <- 'opposite'
+
+example_fill <- melt(data = example_df[, c(1, 6:ncol(example_df))], id.vars = 'geneid')
+example_fill <- na.omit(example_fill)
+
+
+fill_plot <- 
+  ggplot(example_fill, mapping = aes(variable, fill=value))+
+  geom_bar(stat='count', position='fill')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90)) 
+
+
+ex_upset <- upset(example_df, intersect = c(paste('comparison', 1:4, sep='_')), mode = 'inclusive_intersection', max_degree=4, keep_empty_groups=T, sort_sets=F, intersections=list('comparison_1', 'comparison_2', 'comparison_3', 'comparison_4', c(paste('comparison',1:2,sep='_')), c(paste('comparison',3:4,sep='_')), paste('comparison',c(1, 3),sep='_'), paste('comparison',c(2, 4),sep='_'))) 
+
+fill_plot/ex_upset
+
+example_df <- deg_leaf[deg_leaf$geneid %in% sample(x = deg_leaf$geneid, size = 15000, replace = F), ]
+example_df$geneid <- paste('gene', 1:nrow(example_df), sep='_')
+names(example_df) <- c('geneid', paste('comparison', 1:6, sep='_'),paste('fill_comparison', 1:6, sep='_'), paste('intersection', 1:5, sep='_'))
+
+```
+
+## Many genes are potentialy annotated with other  GO terms. Which GO term has unique genes? How many genes appear in more than one set?
+
+```{r}
+shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0048226', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+cc_terms <- box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt[box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt$GO.Category=='CELLULAR_COMPONENT', 'GO.Term']
+
+# list with genes in each go term
+
+genes_in_go <- function(go_term, enrichment_set) {
+  print(go_term)
+  set <- enrichment_set[as.character(enrichment_set) %in% go_annot[grep(go_term, as.character(go_annot$annotation_go_id)),"sequence_name"]]
+  print(set)
+  return(set)
+}
+
+
+genes_in_go_1 <- lapply(cc_terms, function(term) genes_in_go(go_term = term, enrichment_set = shareddown_root_tsh660_48h_pa121_48h_0h))
+
+names(genes_in_go_1) <- cc_terms
+
+in_go_term <- function(x){
+  c <- NULL
+  for (i in 1:26){
+    c <- append(c, (sum(x %in% genes_in_go_1[[i]])/length(x))*100)
+  }  
+  return(c)
+}
+
+in_go_term <- function(x, gene_go_list){
+  c <- NULL
+  for (i in 1:length(gene_go_list)){
+    c <- append(c, paste(sum(x %in% gene_go_list[[i]]), length(x), sep = '/'))
+  }  
+  return(c)
+}
+
+belongs_cc <- lapply(genes_in_go_1, function(x) in_go_term(x = x, gene_go_list = genes_in_go_1))
+
+belongs_cc <- do.call(cbind, belongs_cc)
+rownames(belongs_cc) <- cc_terms
+#keys <- colnames(belongs_cc)
+#flextable(as.data.frame(cbind(rownames(belongs_cc), belongs_cc)),  col_keys = keys)
+
+
+#BP terms
+
+bp_terms <- box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt[box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt$GO.Category=='BIOLOGICAL_PROCESS', 'GO.Term']
+
+genes_in_go_bp <- lapply(bp_terms, function(term) genes_in_go(go_term = term, enrichment_set = shareddown_root_tsh660_48h_pa121_48h_0h))
+
+names(genes_in_go_bp) <- bp_terms
+
+belongs_bp <- lapply(genes_in_go_bp, function(x) in_go_term(x = x, gene_go_list = genes_in_go_bp))
+
+belongs_bp <- do.call(cbind, belongs_bp)
+rownames(belongs_bp) <- bp_terms
+
+#MF terms
+
+mf_terms <- box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt[box_root_prep$shared_root_pa121_48h_tsh660_48h_down_fischer.txt$GO.Category=='MOLECULAR_FUNCTION', 'GO.Term']
+
+genes_in_go_mf <- lapply(mf_terms, function(term) genes_in_go(go_term = term, enrichment_set = shareddown_root_tsh660_48h_pa121_48h_0h))
+
+names(genes_in_go_mf) <- mf_terms
+
+belongs_mf <- lapply(genes_in_go_mf, function(x) in_go_term(x = x, gene_go_list = genes_in_go_mf))
+belongs_mf <- do.call(cbind, belongs_mf)
+rownames(belongs_mf) <- mf_terms
+
+```
+
+
+
+```{r}
+library(ggVennDiagram)
+
+ggVennDiagram(list(upreg_leaf_id$leaf_tsh660_24h_0h, upreg_leaf_id$leaf_tsh660_48h_0h), category.names = c('24_0', '48_0'))+
+  theme(legend.position = 'none')+
+  scale_x_continuous(expand = expand_scale(mult = .2))+
+  labs(subtitle = 'Upregulated DEG in TSH 24h and 48h ACT')+
+  scale_fill_gradient(low='#DEBAD6', high = '#7954A1')
+
+
+```
+
+## what genes are involved in the casparian strip from the GO term?
+GO:0048226 Casparian strip 
+
+
+```{r}
+
+load('go_names_by_ID.rda')
+
+go_annot <- read.delim('B97_B2GO_annot.txt', header = F, fill = T, sep='\t', na.strings = ' ', as.is = T)
+go_annot <- go_annot[,c('V1', 'V2', 'V7')]
+names(go_annot) <- go_annot[1, ]
+go_annot <- go_annot[2:nrow(go_annot), ]
+names(go_annot) <- gsub(pattern = ' ', replacement = '_', tolower(names(go_annot)))
+save(go_annot, file = 'b97_genes_in_goterm.rda')
+
+go_annot[grep('GO:0048226', as.character(go_annot$annotation_go_id)),]
+
+casparian_root_genes <- shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0048226', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+secondary_cell_wal <- shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0009531', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+plant_type_cell_wall <- shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0009505', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+peroxidase_activity
+oxidoreductase_activity_on_peroxide_as_acceptor <- 
+manganese_ion_binding <- shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0030145', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+lignin_metabolic_process
+phenylpropanoid_metabolic_process
+phenylpropanoid_biosynthetic_process
+
+#get the GO.Names from the GO.ID
+
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'casparian_strip_test1.pdf', colsp = 6, named_genes = casparian_root_genes) 
+
+sapply(list(casparian_root_genes, secondary_cell_wal, plant_type_cell_wall), length)
+
+
+named_list <- list(casparian_root_genes, secondary_cell_wal, plant_type_cell_wall)
+names(named_list) <- c('Casparian strip', 'Scondary cell wall', 'Plant cell wall')
+
+gene_cat <- data.frame(gene_id=unlist(named_list, recursive = T), Category=NA)
+
+gene_cat$Category <- gsub("[[:digit:]]","",rownames(gene_cat))
+
+categories <- as.data.frame(zscores[(rownames(zscores) %in% gene_cat$gene_id),])
+categories$cat <- gene_cat[which((gene_cat$gene_id %in% rownames(zscores) )),'Category']
+
+mycol=brewer.pal(3, "Dark2")
+f <- factor(gene_cat$Category)
+
+
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'cc_shared_down_root_hm.pdf', colsp = 6, named_genes = c(casparian_root_genes, secondary_cell_wal, plant_type_cell_wall), named_cat = gene_cat, ncat = 3) 
+
+
+
+annot[annot$id %in% casparian_root_genes , 'annot']
+
+```
+
+#Shared
+##Down in roots of PA121 48h ACT and TSH660 48h ACT (1)
+Casparian strip (CC) GO:0048226 #
+Secondary cell wall (CC) GO:0009531 #
+Plant-type cell wall (CC)
+Peroxidase activity (MF) # GO:0004601
+REDOX (MF)
+Manganese Ion binding (MF) # GO:0030145
+heme binding (MF)  GO:0020037
+transmembrane transporter activity GO:0022857
+lignin metabolism (BP) #  GO:0009809 
+inorganic ion transmembrane transport GO:0098660 (BP)
+##Up in roots of PA121 48h ACT and TSH660 48h ACT (2)
+Peptidase inhibitor (MF) # GO:0030414
+Chloroplast Thylakoid membrane (CC) # GO:0009535
+Starch catabolic process (BP) # GO:0005983
+Cell wall biogenesis (BP) # GO:1901348 
+##Up in leaves of PA121 48h ACT and TSH660 48H (3)
+ATP-dependent protein folding chaperone (CC)#
+Unfolded protein binding (CC)
+Protein folding chaperone (CC)#
+Peroxidase acceptor as a response to heat (BP)#
+Protein folding (BP)#
+Protein complex oligomerization (BP)
+Response to topologically incorrect protein (BP)
+
+#Divergent
+#Enriched in high accumulation at 48h ACT (4)
+Apoplast #
+Copper ion binding #
+Plant-type cell wall #
+
+
+#make a heatmap with all the interesting GO terms in the shared DEG in roots: 
+Interesting GO terms in shared:
+1) GO:0048226 Casparian strip 
+2) GO:0009531 secondary cell wall
+3) GO:0009505 plant-type cell wall
+4) GO:0005618 cell wall
+5) GO:0030312 external encapsulating structure
+6) GO:0048046 apoplast
+7) GO:0005576 extracellular region
+8)
+#Figure 3: Heatmap of Cd related genes
+
+previously identified genes, 
+Antioxidant system: Tc05v2_g021080
+Cell Wall Metabolism: Tc09v_g013440, Tc10v2_g000770, Tc01v2_g006910, Tc02v2_g002650
+Metal Transport: Tc09v2_g015490, Tc03v2_g017020
+Nitrogen Metabolsim: Tc08v2_g009890
+Sulfate, GSH Metabolism: Tc09v2_g019590
+
+Sieve throught eh gene swith GO terms: 
+
+```{r}
+# shared down  root tsh660 48h pa121 48h 0h (1)
+
+casparian_root_genes <- shareddown_root_tsh660_48h_pa121_48h_0h[as.character(shareddown_root_tsh660_48h_pa121_48h_0h) %in% go_annot[grep('GO:0048226', as.character(go_annot$annotation_go_id)),"sequence_name"]]
+
+secondary_cell_wall <- get_genes_in_go(go_id =  'GO:0009531', gene_list = shareddown_root_tsh660_48h_pa121_48h_0h)
+
+go_list <- c('GO:0048226', 'GO:0009531', 'GO:0009505', 'GO:0005618', 'GO:0030312', 'GO:0048046', 'GO:0005576')
+go_names <- c('casparian_root_genes', 'secondary_cell_wall', 'plant_type_cell_wall', 'cell_wall', 'external_encapsulating_structure', 'apoplast', 'extracellular_region')
+
+gene_list <- lapply(go_list, function(x) genes_in_go(go_term =  x, enrichment_set = shareddown_root_tsh660_48h_pa121_48h_0h))
+
+names(gene_list) <- go_names
+
+scr_heatmap(data = counts(dd_root_nl.le), file_name = 'shared_down_root_cc.pdf', colsp = 6, named_genes = unlist(gene_list, recursive = T, use.names = F), rowsp = c(11,)) 
+
+# 1
+
+Casparian strip (CC) GO:0048226 #
+Secondary cell wall (CC) GO:0009531 #
+Peroxidase activity (MF) # GO:0004601
+Manganese Ion binding (MF) # GO:0030145
+heme binding (MF)  GO:0020037
+transmembrane transporter activity GO:0022857 (MF)
+lignin metabolism (BP) #  GO:0009809 
+inorganic ion transmembrane transport GO:0098660 (BP)
+
+go_list1 <- c('GO:0048226', 'GO:0009531', 'GO:0004601', 'GO:0030145', 'GO:0020037', 'GO:0022857', 'GO:0009809')
+go_names1 <- c('Casparian strip', 'Secondary cell wall', 'Peroxidase activity', 'manganese ion binding', 'heme binding', 'transmembrane transporter activity', 'lignin metabolism')
+
+gene_list1 <- lapply(go_list1, function(x) genes_in_go(go_term =  x, enrichment_set = shareddown_root_tsh660_48h_pa121_48h_0h))
+names(gene_list1) <- go_names1
+
+gene_cat1 <- data.frame(gene_id=unlist(gene_list1, recursive = T), Category=NA)
+
+gene_cat1$Category <- gsub("[[:digit:]]","",rownames(gene_cat1))
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'heatmap_shared_down_root_plantbio.pdf', colsp = 6, named_genes = unlist(gene_list1, recursive = T, use.names = T), named_cat = gene_cat1, ncat = 7) 
+
+
+#2
+Peptidase inhibitor (MF) # GO:0030414
+Chloroplast Thylakoid membrane (CC) # GO:0009535
+Starch catabolic process (BP) GO:0005983
+Cell wall biogenesis (BP) # GO:1901348 
+
+go_list2 <- c('GO:0030414', 'GO:0009535', 'GO:0005983', 'GO:1901348')
+go_names2 <- c('Peptidase inhibitor', 'Chloroplast Thlakoid membrane', 'Starch catabolic process', 'Cell wall biogenesis')
+
+gene_list2 <- lapply(go_list2, function(x) genes_in_go(go_term =  x, enrichment_set = sharedup_root_tsh660_48h_pa121_48h_0h))
+names(gene_list2) <- go_names2
+
+gene_cat2 <- data.frame(gene_id=unlist(gene_list2, recursive = T), Category=NA)
+gene_cat2$Category <- gsub("[[:digit:]]","",rownames(gene_cat2))
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'heatmap_shared_up_root_plantbio.pdf', colsp = 6, named_genes = unlist(gene_list2, recursive = T, use.names = T), named_cat = gene_cat2, ncat = 4) 
+
+#3
+ATP-dependent protein folding chaperone (CC)# GO:0140662
+Unfolded protein binding (CC) #GO:0051082
+Protein folding chaperone (CC) #GO:0044183 
+cellular response to heat (BP)# GO:0034605
+Protein folding (BP)# GO:0006457
+Protein complex oligomerization (BP) #GO:0051259
+Response to topologically incorrect protein (BP) #GO:0035966
+
+go_list3 <- c('GO:0140662', 'GO:0051082', 'GO:0044183', 'GO:0034605', 'GO:0006457', 'GO:0051259')
+go_names3 <- c('ATP-dependent protein folding chaperone', 'Unfolded protein binding', 'Protein folding chaperone', 'cellular response to heat', 'Protein folding', 'Protein complex oligomerization')
+
+gene_list3 <- lapply(go_list3, function(x) genes_in_go(go_term =  x, enrichment_set = sharedup_tsh660_48h_pa121_48h))
+names(gene_list3) <- go_names3
+
+gene_cat3 <- data.frame(gene_id=unlist(gene_list3, recursive = T), Category=NA)
+gene_cat3$Category <- gsub("[[:digit:]]","",rownames(gene_cat3))
+
+make_zscr_heatmap(data = counts(dd_leaf.le), file_name = 'heatmap_shared_up_leaves_plantbio.pdf', colsp = 9, named_genes = unlist(gene_list3, recursive = T, use.names = T), named_cat = gene_cat3, ncat = 6) 
+
+#metal transporters
+#IRT like
+zips <- c('Tc06v2_t011440.1', 'Tc09v2_t004720.1', 'Tc07v2_t015060.1', 'Tc01v2_t014640.1','Tc02v2_t000370.1','Tc02v2_t000380.1', 'Tc01v2_t015140.2', 'Tc02v2_t027520.1', 'Tc09v2_t029630.1', 'Tc09v2_t026690.3', 'Tc07v2_t001430.1', 'Tc07v2_t001410.2') 
+zip_list <- cr[cr$lookup %in% zips, 'crv3.2']
+
+
+zach1 <- df_root_geno$root_tsh660_48h_0h[unlist(lapply(zips, function(x) grep(x, df_root_geno$root_tsh660_48h_0h$annot, value = F))),]
+zach2 <- df_root_geno$root_pa121_48h_0h[unlist(lapply(zips, function(x) grep(x, df_root_geno$root_pa121_48h_0h$annot, value = F))),]
+zach3 <- df_leaf_geno$leaf_tsh660_48h_0h[unlist(lapply(zips, function(x) grep(x, df_leaf_geno$leaf_tsh660_48h_0h$annot, value = F))),]
+zach4 <- df_leaf_geno$leaf_pa121_48h_0h[unlist(lapply(zips, function(x) grep(x, df_leaf_geno$leaf_pa121_48h_0h$annot, value = F))),]
+zach <- rbind(zach1, zach2, zach3, zach4)
+write.table(zach, file = 'zachs_irt', quote = F, row.names = F)
+#HMA
+hma <- c('Tc09v2_t019080.2', 'Tc03v2_t023170.1', 'Tc02v2_t011530.1', 'Tc02v2_t000500.1', 'Tc01v2_t018910.1', 'Tc01v2_t005580.1', 'Tc09v2_t015490.', 'Tc09v2_t015500')
+hma_list <- cr[cr$lookup %in% hma, 'crv3.2']
+
+df_root_geno$root_tsh660_48h_0h[unlist(lapply(hma, function(x) grep(x, df_root_geno$root_tsh660_48h_0h$annot, value = F))),]
+df_root_geno$root_pa121_48h_0h[unlist(lapply(hma, function(x) grep(x, df_root_geno$root_pa121_48h_0h$annot, value = F))),]
+#Nramp
+nramp_list <- na.omit(cr[grep('Nramp', cr$cr), "crv3.2"])
+
+df_root_geno$root_tsh660_48h_0h[grep('Nramp', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('Nramp', df_root_geno$root_pa121_48h_0h$annot),]
+#YSL
+ysl_list <- na.omit(cr[grep('TSL', cr$cr), "crv3.2"])
+
+df_root_geno$root_tsh660_48h_0h[grep('YSL', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('YSL', df_root_geno$root_pa121_48h_0h$annot),]
+
+MT_cat <- data.frame(gene_id=c(zip_list, hma_list, nramp_list, ysl_list), Category=NA)
+MT_cat[MT_cat$gene_id %in% zip_list, "Category"] <- 'ZIP'
+MT_cat[MT_cat$gene_id %in% hma_list, "Category"] <- 'HMA'
+MT_cat[MT_cat$gene_id %in% ysl_list, "Category"] <- 'YSL'
+MT_cat[MT_cat$gene_id %in% nramp_list, "Category"] <- 'NRAMP'
+MT_cat <- MT_cat[!duplicated(MT_cat$gene_id), ]
+
+mt_list <- c('Tc06cons_g014450', 'Tc09cons_g030920', 'Tc06cons_g003950', 'Tc08cons_g011190', 'Tc02cons_g000500')
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'metal_transporter_heatmap',ncat = 4,row_ordered = F, colsp = c(6), named_cat = MT_cat[MT_cat$gene_id %in% mt_list,], dendo = 'none', named_genes = mt_list, HEIGHT = 12, MARGINS = c(17, 17))
+
+#CAX
+df_root_geno$root_tsh660_48h_0h[grep('CAX', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('CAX', df_root_geno$root_pa121_48h_0h$annot),]
+df_root_geno$root_tsh660_48h_0h[grep('Cation', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('CAX', df_root_geno$root_pa121_48h_0h$annot),]
+#Cd keyword
+df_root_geno$root_tsh660_48h_0h[grep('Cadmium', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('Cadmium', df_root_geno$root_pa121_48h_0h$annot),]
+#heavymetal
+df_root_geno$root_tsh660_48h_0h[grep('Heavy metal', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('Heavy metal', df_root_geno$root_pa121_48h_0h$annot),]
+#PCR
+df_root_geno$root_tsh660_48h_0h[grep('PCR', df_root_geno$root_tsh660_48h_0h$annot),]
+df_root_geno$root_pa121_48h_0h[grep('PCR', df_root_geno$root_pa121_48h_0h$annot),]
+
+HMA
+NRAMP #one Nramp5 is only downregulated in the low accumulator Tc08cons_g011190
+YSL
+CAX
+
+values <- as.matrix(counts(dd_root_nl.le))
+
+heatmap.2(zscores[rownames(zscores) %in% mt_list,], col=greenred, density.info="none", Colv=NULL, colsep = 6, Rowv = F,
+          dendrogram='row', trace="none", srtCol = 45, margins=c(10, 15),
+          RowSideColors = brewer.pal(n = 3, 'Dark2')[factor(c('NRAMP','HMA', 'NRAMP', 'ZIP', 'ZIP' ))])
+
+          
+
+
+
+    legend(x=c('top'), ncol=2, legend=unique(f), col=mypal[], pch=15)
+
+
+```
+
+
+## Figure 5 GSEA between the genotypes at the same timepoint plus heatmap
+
+#Prepare Input (read DESeq results and prepare gsea_lists)
+```{r}
+
+prep_gsea_list <- function(x){
+  # we want the log2 fold change 
+  gsea_list <- x$log2FoldChange
+  
+  # name the vector
+  names(gsea_list) <- toupper(x$geneid)
+  
+  # omit any NA values 
+  gsea_list<-na.omit(gsea_list)
+  
+  # sort the list in decreasing order (required for clusterProfiler)
+  gsea_list = sort(gsea_list, decreasing = TRUE)
+  return(gsea_list)
+}
+
+
+# reading leaf data from deseq2
+df = read.csv('res_leaf/res_leaf_tables/all_leaf_comparisons_table.txt', header=TRUE, row.names = NULL, sep = '\t')
+leaf_geno_comparison_names <- unique(df$comp)
+df <- split(x = df, f = df$comp)
+
+leaf_gsea_list <- lapply(df, prep_gsea_list)
+
+names(leaf_gsea_list) <- leaf_geno_comparison_names
+
+leaf_gsea_list[[1]][1:10]
+
+
+for (i in 1:length(leaf_gsea_list)){
+  names(leaf_gsea_list[[i]]) <- stringi::stri_trans_totitle(names(leaf_gsea_list[[i]]))
+}
+
+# reading ROOT data from deseq2
+df = read.csv('res_root/res_root_tables/all_root_comparisons_table.txt', header=TRUE, row.names = NULL, sep='\t')
+root_geno_comparison_names <- unique(df$comp)
+df <- split(x = df, f = df$comp)
+
+root_gsea_list <- lapply(df, prep_gsea_list)
+
+names(root_gsea_list) <- root_geno_comparison_names
+
+for (i in 1:length(root_gsea_list)){
+  names(root_gsea_list[[i]]) <- stringi::stri_trans_totitle(names(root_gsea_list[[i]]))
+}
+
+
+
+
+```
+GSEA enriched go terms Root TSH660 48h vs PA121 48h
+
+GO:0048046	apoplast
+GO:0005507	copper ion binding
+GO:0009505	plant-type cell wall
+GO:0016682	oxidoreductase activity, acting on diphenols and related substances as donors, oxygen as acceptor
+
+```{r}
+install.packages('devtools')
+devtools::install_github("nicolash2/gggsea")
+library(gggsea)
+library(stringi)
+library(plyr)
+library(dplyr)
+
+
+
+tcgo <- read.table('GO_terms/B97_goterms_tables2.txt', fill=T, sep='\t') #gene id rownames and GO terms on each gene FROM OMICSBOX
+tcgo <- tcgo[2:nrow(tcgo), ]
+tcgo <- tcgo[!tcgo$V2=="", ]
+names(tcgo) <- c('GID', 'GO', 'GO_cat')
+allgo <- paste(tcgo$GO, collapse = ';')
+allgo <- strsplit(allgo, ';')
+allgo <- unlist(allgo)
+allgo <- unique(allgo)
+sl <- lapply(allgo, function(x) {
+  y <- tcgo[grep(pattern = x, tcgo$GO), 'GID']
+  return(y)
+})
+names(sl) <- allgo #the GMT from OmicsBox
+
+gmt_cacao <- lapply(allgo, function(x) {
+  y <- tcgo[grep(pattern = x, tcgo$GO), 'GID']
+  z <- c(x,y)
+  return(z)
+  return(df)
+})
+
+
+gmt_cacaodf <- bind_rows(lapply(gmt_cacao, as.data.frame.list)) # working, makes a dataframe (each row a GO and each row a gene)
+na.omit(gmt_cacaodf[2,][!is.na(gmt_cacaodf[2,])]) #shows all the genes in a determined GOt Term
+
+gmt_cacaodf2 <- as.data.frame(do.call(rbind, gmt_cacaodf)) # not sure if working as intended (a DF each row a GO and each row a gene)
+
+gsea_res_roots48 <- read.delim('gsea_results_omicsbox/gsea_root_48_48.txt') #omicsbox
+setl <- list(sl$`GO:0048046`, sl$`GO:0005507`, sl$`GO:0009505`)
+
+df <- gggsea::gseaCurve(rl = root_gsea_list$root_pa121_tsh660_48h_48h[length(root_gsea_list$root_pa121_tsh660_48h_48h):1], setlist = sl[c("GO:0048046", "GO:0005507", "GO:0009505")], gsea = gsea_res_roots48)
+
+#test reproducibility with FGSEA in ROOTS & leaves, between genotypes
+
+mk_rl <- function(x){
+  ranked_list <- read.table(x)
+  rl <- ranked_list$V2
+  names(rl) <- ranked_list$V1
+  return(rl)
+}
+
+
+ranked_root_48 <- mk_rl('res_root/GSEA_lists/root_pa121_tsh660_48h_48h_gsea_list.txt')
+ranked_root_0 <- mk_rl('res_root/GSEA_lists/root_pa121_tsh660_0h_0h_gsea_list.txt')
+ranked_leaf_0 <- mk_rl('res_leaf/GSEA_lists/leaf_pa121_tsh660_0h_0h_gsea_list.txt')
+ranked_leaf_24 <- mk_rl('res_leaf/GSEA_lists/leaf_pa121_tsh660_24h_24h_gsea_list.txt')
+ranked_leaf_48 <- mk_rl('res_leaf/GSEA_lists/leaf_pa121_48h_0h_gsea_list.txt')
+
+
+# create enrichment results 
+gsea_root_48 <- gsea_enrich(ranked_list = ranked_root_48, gmt_file = sl, seed = 23) #48 hour between roots
+gsea_root_0 <- gsea_enrich(ranked_list = ranked_root_0, gmt_file = sl, seed = 23) # between genotypes in roots, rtime 0
+gsea_leaf_48 <- gsea_enrich(ranked_list = ranked_leaf_48, gmt_file = sl, seed=23) # betwen genotypes in leaves time 48
+gsea_leaf_24 <- gsea_enrich(ranked_list = ranked_leaf_24, gmt_file = sl, seed = 23) # between gneotypes, in leaves time 24
+gsea_leaf_0 <- gsea_enrich(ranked_list = ranked_leaf_0, gmt_file = sl, seed=23) # between genotypes, in leaves time 0
+
+# create curve data.frames
+
+
+
+#test within a genotype (Is it the same as the regular Hypergeometric test?)
+ranked_root_pa121_48_0 <- mk_rl('res_root/GSEA_lists/root_pa121_48h_0h_gsea_list.rnk.txt')
+gsea_root_pa121_48_0 <- gsea_enrich(ranked_list = ranked_root_pa121_48_0, gmt_file = sl, seed=23)
+gcurve_root_pa121_48_0 <- gseaCurve(rl = ranked_root_pa121_48_0, setlist = sl[gsea_root_pa121_48_0$pathway], gsea = gsea_root_pa121_48_0)
+ggplot()+gggsea::geom_gsea(gcurve_root_pa121_48_0)
+
+
+ranked_root_tsh660_48_0 <- mk_rl('res_root/GSEA_lists/root_tsh660_48h_0h_gsea_list.txt')
+gsea_root_tsh660_48_0 <- gsea_enrich(ranked_list = ranked_root_tsh660_48_0, gmt_file = sl, seed = 23)
+gcurve_root_tsh660_48_0 <- gseaCurve(rl=ranked_root_tsh660_48_0, setlist = sl[gsea_root_tsh660_48_0$pathway], gsea = gsea_root_tsh660_48_0)
+
+ranked_leaf_pa121_48_0 <- mk_rl('res_leaf/GSEA_lists/leaf_pa121_48h_0h_gsea_list.txt')
+gsea_leaf_pa121_48_0 <- gsea_enrich(ranked_list = ranked_leaf_pa121_48_0, gmt_file = sl, seed = 23)
+
+ranked_leaf_pa121_24_0 <- mk_rl('res_leaf/GSEA_lists/leaf_pa121_24h_0h_gsea_list.txt')
+gsea_leaf_pa121_24_0 <- gsea_enrich(ranked_list = ranked_leaf_24, gmt_file = sl, seed = 23)
+
+ranked_leaf_tsh660_48_0 <- mk_rl('res_leaf/GSEA_lists/leaf_tsh660_48h_0h_gsea_list.txt')
+gsea_leaf_tsh660_48_0 <- gsea_enrich(ranked_list = ranked_leaf_tsh660_48_0, gmt_file = sl, 23)
+
+ranked_leaf_tsh660_24_0 <- mk_rl('res_leaf/GSEA_lists/leaf_tsh660_24h_0h_gsea_list.txt')
+gsea_leaf_tsh660_24_0 <- gsea_enrich(ranked_list = ranked_leaf_tsh660_24_0, gmt_file = sl, 23)
+
+
+#create the curve dataframes
+
+gseaCurve(rl = ranked_root_tsh660_48_0, setlist = sl[gsea_root_tsh660_48_0$pathway], gsea = gsea_root_tsh660_48_0)
+
+
+ggplot()+
+  gggsea::geom_gsea(gcurve_root_pa121_48_0)
+
+
+
+
+
+ranklist <- ranked_root_48$V2
+
+names(ranklist) <- ranked_root_48$V1
+
+set.seed(23)
+gsea_test <- fgsea::fgseaMultilevel(sl,  ranklist)
+gsea_test <- gsea_test[order(abs(gsea_test$NES), decreasing = T), ]
+gsea_test <- gsea_test[gsea_test$padj<0.05,]
+
+df_fg <- gseaCurve(rl = ranklist, setlist = sl[c("GO:0048046", "GO:0005507", "GO:0009505")], gsea = gsea_test ) #make curve with gggsea
+#fgsea::plotEnrichment(pathway = sl[["GO:0005507"]], ranked_root_48)
+
+df_fg$set <- factor(df_fg$set, unique(df_fg$set), labels=c('Apoplast', 'Copper ion binding', 'Plant-type cell wall'))
+gsea_root_48h <- ggplot()+
+  gggsea::geom_gsea(df_fg)
+ggsave(filename = 'enrichment_score_gsea_root_48_48h', plot = gsea_root_48h, device = 'pdf', width = 21, height = 18, units = 'cm', dpi = 300)
+
+df_fg_all_root_0h <- gseaCurve(rl = ranklist, setlist = sl[gsea_test$pathway], gsea = gsea_test ) #make curve with gggsea
+ggplot()+
+  gggsea::geom_gsea(df_fg_all_root_0h)
+root_gsea_table_0h <- fgsea::plotGseaTable(pathways = sl, stats = ranklist, fgseaRes = df_fg_all_root_0h)
+
+df_apo <- df_fg[df_fg$set=='Apoplast',]
+df_cb <- df_fg[df_fg$set=='Copper ion binding',]
+df_pcwt <- df_fg[df_fg$set=='Plant-type cell wall',]
+
+eg_apo <- gsea_root_48h <- ggplot()+
+  gggsea::geom_gsea(df_apo)+theme_minimal()
+eg_cb <- gsea_root_48h <- ggplot()+
+  gggsea::geom_gsea(df_cb)+theme_minimal()+theme(axis.title.y = element_blank())
+eg_pcwt <- gsea_root_48h <- ggplot()+
+  gggsea::geom_gsea(df_pcwt)+theme_minimal()+theme(axis.title.y = element_blank())
+
+en_graph <- eg_apo + eg_cb+eg_pcwt+patchwork::plot_layout(ncol = 3) + patchwork::plot_annotation( tag_level = 'A')
+ggsave(filename = 'gsea_poster', plot = en_graph, device = 'pdf', width = 21, height = 12, units = 'cm', dpi = 300)
+ggsave(filename = 'gsea_plantBio', plot = en_graph, device = 'pdf', width = 24, height = 8, units = 'cm', dpi = 300)
+ 
+ranklist0 <- ranked_root_0$V2 
+names(ranklist0) <- ranked_root_0$V1
+set.seed(23)
+gsea_test0 <- fgsea::fgseaMultilevel(sl,  ranklist0)
+gsea_test0 <- gsea_test0[order(abs(gsea_test0$NES), decreasing = T), ]
+gsea_test0 <- gsea_test0[gsea_test0$padj<0.05,]
+
+df2 <- gseaCurve(rl = root_gsea_list$root_pa121_tsh660_48h_48h, setlist = sl[c("GO:0048046", "GO:0005507", "GO:0009505")], gsea = gsea_test)
+
+#make heatmap for those
+gsea_go_list1 <- c("GO:0048046", "GO:0005507", "GO:0009505")
+gsea_go_names1 <- c('Apoplast', 'Copper ion binding', 'Plant-type cell wall')
+
+gsea_le1 <- unlist(gsea_test0[gsea_test0$pathway %in% gsea_go_list1, c(8)], recursive = F)
+names(gsea_le1) <- gsea_go_names1[length(gsea_go_names1):1]
+
+gsea_cat1 <- data.frame(gene_id=unlist(gsea_le1, recursive = T), Category=NA)
+gsea_cat1$Category <- gsub("[[:digit:]]","",rownames(gsea_cat1))
+
+make_zscr_heatmap(data = counts(dd_root_nl.le), file_name = 'gsea_root_t0_plantbio.pdf', colsp = 6, named_genes = unlist(gsea_le1, recursive = T, use.names = T), named_cat = gsea_cat1, ncat = 3) 
+
+
+word_gsea1 <- lapply(gsea_le1$Apoplast, get_words)
+make_wordcloud(word_list = word_gsea1)
+word_gsea2 <- lapply(gsea_le1$`Copper ion binding`, get_words)
+make_wordcloud(word_list = word_gsea2)
+word_gsea3 <- lapply(gsea_le1$`Plant-type cell wall`, get_words)
+make_wordcloud(word_list = word_gsea3)
+
+
+
+```
+
+#word cloud of gene annotations
+```{r}
+install.packages("tm")  # for text mining
+install.packages("SnowballC") # for text stemming
+install.packages("wordcloud")
+install.packages("wordcloud2")
+library("tm")
+library("SnowballC")
+library("wordcloud")
+library('wordcloud2')
+
+get_words <- function(gl){
+  ann <- goterm[goterm$id %in% gl, 'annot']
+  ann <- unlist(lapply(ann, function(x) strsplit(x, split = 'Note=')[[1]][2]), recursive = F)
+  ann <- unlist(lapply(ann, function(x) strsplit(x, split = 'Tc')[[1]][1]), recursive=F)
+  ann <- unlist(lapply(ann, function(x) trimws(x)), recursive=F)
+}
+
+word_list1 <- lapply(gene_list1, get_words)
+word_list2 <- lapply(gene_list2, get_words)
+word_list3 <- lapply(gene_list3, get_words)
+
+
+make_wordcloud <- function(word_list, seed_n=1234){
+  docs <- Corpus(VectorSource(word_list))
+  toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+  docs <- tm_map(docs, toSpace, "/")
+  docs <- tm_map(docs, toSpace, "@")
+  docs <- tm_map(docs, toSpace, "\\|")
+  
+  # Convert the text to lower case
+  docs <- tm_map(docs, content_transformer(tolower))
+  # Remove numbers
+  docs <- tm_map(docs, removeNumbers)
+  # Remove english common stopwords
+  docs <- tm_map(docs, removeWords, stopwords("english"))
+  # Remove your own stop word
+  # specify your stopwords as a character vector
+  docs <- tm_map(docs, removeWords, c('like', 'putative')) 
+  # Remove punctuations
+  docs <- tm_map(docs, removePunctuation)
+  # Eliminate extra white spaces
+  docs <- tm_map(docs, stripWhitespace)
+  # Text stemming
+  # docs <- tm_map(docs, stemDocument)
+  
+  
+  dtm <- TermDocumentMatrix(docs)
+  m <- as.matrix(dtm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  d <- data.frame(word = names(v),freq=v)
+  head(d, 10)
+  
+  set.seed(seed_n)
+  wordcloud(words = d$word, freq = d$freq, min.freq = 0, 
+            max.words=1999, random.order=FALSE, rot.per=0.35, 
+            colors=brewer.pal(8, "Dark2"))
+  #wordcloud2(data = d, fontFamily = 'arial')
+}
+
+make_wordcloud(word_list = word_list1, seed_n = 1234 )
+make_wordcloud(word_list = word_list2, seed_n = 1234 )
+make_wordcloud(word_list = word_list3, seed_n = 1234 )
+
+
+cs_annot <- goterm[goterm$id %in% gene_list1$`Casparian strip`, 'annot']
+cs_annot <- lapply(cs_annot, function(x) strsplit(x, split = 'Note=')[[1]][2])
+cs_annot <- lapply(cs_annot, function(x) strsplit(x, split = 'Tc')[[1]][1])
+
+```
+
+
+
+### Regular Upset Leaf
+
+```{r}
+leaf_pa121_24h_0h=NA
+leaf_tsh660_24h_0h=NA
+leaf_pa121_48h_0h=NA
+leaf_tsh660_48h_0h=NA
+
+leaf_comparison_names <- c('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h', 'leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h')
+
+deg_leaf <- data.frame(geneid=na.omit(annot$id),
+                         leaf_pa121_24h_0h,
+                         leaf_tsh660_24h_0h,
+                         leaf_pa121_48h_0h,
+                         leaf_tsh660_48h_0h)
+
+deg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05 , 'geneid'])
+
+#leaf_comparison_names <- names(deg_leaf[, 2:ncol(deg_leaf)])
+
+lapply(leaf_comparison_names, function(x) {
+  deg_leaf[, x] <<- as.integer(deg_leaf$geneid %in% deg_leaf_id[[x]])
+})
+
+upset_leaf_deg <- UpSetR::upset(deg_leaf, number.angles = 30, mb.ratio = c(.7, 0.3), point.size = 3.5, line.size = 2, mainbar.y.label = "DEG in intersection", sets.x.label = "DEG", keep.order = T, intersect = list(list("leaf_pa121_24h_0h"), list("leaf_tsh660_24h_0h"),list("leaf_pa121_48h_0h"), list("leaf_tsh660_48h_0h"), list('leaf_pa121_24h_0h', 'leaf_tsh660_24h_0h'), list('leaf_pa121_48h_0h', 'leaf_tsh660_48h_0h'),  list('leaf_pa121_24h_0h', 'leaf_pa121_48h_0h'), list('leaf_tsh660_24h_0h', 'leaf_tsh660_48h_0h'), list("leaf_pa121_24h_0h", "leaf_tsh660_24h_0h", "leaf_pa121_48h_0h", "leaf_tsh660_48h_0h")), empty.intersections = T)
+
+ggsave("upset_plot_leaf_allDEG.pdf", ggplotify::as.ggplot(upset_leaf_deg), width = 8, height = 5)
+
+
+# save gene intersect names for GO enrichment
+
+upreg_leaf <- data.frame(geneid=as.character(annot$id),
+                         leaf_pa121_24h_0h,
+                         leaf_tsh660_24h_0h,
+                         leaf_pa121_48h_0h,
+                         leaf_tsh660_48h_0h)
+upreg_leaf[!is.na(upreg_leaf$geneid),]
+
+upreg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05 & x$log2FoldChange>0, 'geneid'])
+
+downreg_leaf <- upreg_leaf
+
+downreg_leaf_id <- lapply(df_leaf_geno, function(x) x[x$padj<0.05 & x$log2FoldChange<0, 'geneid'])
+
+lapply(names(upreg_leaf[, 2:ncol(upreg_leaf)]), function(x) {
+  upreg_leaf[, x] <<- as.integer(upreg_leaf$geneid %in% upreg_leaf_id[[x]])
+})
+
+lapply(names(downreg_leaf[, 2:ncol(downreg_leaf)]), function(x) {
+  downreg_leaf[, x] <<- as.integer(downreg_leaf$geneid %in% downreg_leaf_id[[x]])
+})
+```
+
